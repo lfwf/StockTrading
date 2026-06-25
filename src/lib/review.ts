@@ -24,9 +24,9 @@ export function reviewDecision(scenario: ScenarioView, decision: DecisionInput):
   const high60 = visibleDaily.length >= 20 ? rollingHigh(visibleDaily, Math.min(60, visibleDaily.length)) : decisionBar.high;
   const drawdownFromHigh = change(high60, buyPrice);
 
-  const dayCloseRet = mode === 'open' || mode === 'noon' ? getReturn(decisionBar.close, buyPrice) : undefined;
+  const dayCloseRet = mode === 'open' || mode === 'noon' ? getReturn(decisionBar.close, buyPrice) ?? undefined : undefined;
   const nextBar = base.daily[entryIndex + 1];
-  const retNextOpen = mode === 'close' ? getReturn(nextBar?.open, buyPrice) : undefined;
+  const retNextOpen = mode === 'close' ? getReturn(nextBar?.open, buyPrice) ?? undefined : undefined;
   const ret1 = getReturn(base.daily[entryIndex + 1]?.close, buyPrice);
   const ret3 = getReturn(base.daily[entryIndex + 3]?.close, buyPrice);
   const ret5 = getReturn(base.daily[entryIndex + 5]?.close, buyPrice);
