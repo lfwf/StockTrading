@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
-import type { DecisionInput, HoldPlan, IntradayPoint, OhlcvBar, PositionSize, ReviewResult, TimeMode } from './types';
+import { useEffect, useMemo, useState } from 'react';
+import type { BaseCase, DecisionInput, HoldPlan, IntradayPoint, OhlcvBar, PositionSize, ReviewResult, TimeMode } from './types';
 import { buildScenarioView, createBaseCase, createRandomMode, getModeLabel, nextMode } from './lib/market';
 import { average, change, formatVolume, ma, moneyYi, pct, rollingHigh, rollingLow } from './lib/indicators';
 import { reviewDecision, reviewSkip } from './lib/review';
+import { loadTrainingDataset, pickTrainingCase } from './lib/dataset';
 
 const HOLD_PLANS: HoldPlan[] = [1, 3, 5, 10, 20];
 const POSITION_SIZES: PositionSize[] = [25, 50, 100];
@@ -11,6 +12,8 @@ const REASON_TAGS = ['突破', '回踩', '低吸', '放量', '趋势确认', '�
 const TIME_MODES: TimeMode[] = ['open', 'noon', 'close'];
 
 export default function App() {
+  const [trainingCases, setTrainingCases] = useState<BaseCase[]>([]);
+  const [dataStatus, setDataStatus] = useState('正在检查 AKShare 数据');
   const [baseCase, setBaseCase] = useState(() => createBaseCase());
   const [mode, setMode] = useState<TimeMode>(() => createRandomMode());
   const [showName, setShowName] = useState(false);
@@ -20,6 +23,32 @@ export default function App() {
   const [reasonTags, setReasonTags] = useState<string[]>([]);
   const [review, setReview] = useState<ReviewResult | null>(null);
   const scenario = useMemo(() => buildScenarioView(baseCase, mode), [baseCase, mode]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadTrainingDataset().then((dataset) => {
+      if (cancelled) return;
+      if (!dataset) {
+        setDataStatus('模拟数据 · 运行 AKShare 脚本后自动切换');
+        return;
+      }
+
+      const seed = Date.now() + Math.floor(Math.random() * 100000);
+      const picked = pickTrainingCase(dataset.cases, seed);
+      setTrainingCases(dataset.cases);
+      setDataStatus(`${dataset.source} · ${dataset.cases.length}题 · ${dataset.generatedAt.slice(0, 10)}`);
+      if (picked) {
+        setBaseCase(picked);
+        setMode(createRandomMode(seed));
+        setReview(null);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const intradayHigh = Math.max(...scenario.visibleIntraday.map((point) => point.price));
   const intradayLow = Math.min(...scenario.visibleIntraday.map((point) => point.price));
@@ -33,8 +62,12 @@ export default function App() {
   const indexPreClose = scenario.visibleIndexDaily.at(-1)?.preClose ?? scenario.visibleIndexDaily.at(-1)?.close ?? 1;
   const indexChange = change(indexPreClose, indexLast);
 
+  function getNextBaseCase(seed: number): BaseCase {
+    return pickTrainingCase(trainingCases, seed) ?? createBaseCase(seed);
+  }
+
   function resetTraining(seed = Date.now() + Math.floor(Math.random() * 100000)) {
-    setBaseCase(createBaseCase(seed));
+    setBaseCase(getNextBaseCase(seed));
     setMode(createRandomMode(seed));
     setReview(null);
     setReasonTags([]);
@@ -93,6 +126,7 @@ export default function App() {
         <StatusItem label="可见数据截止" value={scenario.visibleUntil} />
         <StatusItem label="股票" value={showName ? `${scenario.base.stock.name} ${scenario.base.stock.symbol}` : `已隐藏 · ${scenario.base.stock.industry}`} />
         <StatusItem label="模拟买入价" value={scenario.buyPrice.toFixed(2)} highlight />
+        <StatusItem label="数据源" value={dataStatus} />
         <StatusItem label="未来数据" value="已隐藏" warning />
       </section>
 
@@ -126,7 +160,7 @@ export default function App() {
         </section>
 
         <aside className="side-panel">
-          <div className="card">
+          <div className="card chart-card">
             <ChartHeader title="当天分时" subtitle={mode === 'open' ? '只显示开盘点' : mode === 'noon' ? '显示上午 9:30-11:30' : '显示全天分时'} />
             <IntradayChart points={scenario.visibleIntraday} preClose={scenario.decisionBar.preClose} />
           </div>
@@ -143,7 +177,7 @@ export default function App() {
               <Metric label="截至当前最高" value={intradayHigh.toFixed(2)} />
               <Metric label="截至当前最低" value={intradayLow.toFixed(2)} />
               <Metric label="截至当前成交量" value={formatVolume(intradayVolume)} />
-              <Metric label="昨日成交量" value={formatVolume(scenario.visibleDaily.at(-1)?.volume ?? 0)} />
+              <Metric label="可见日成交量" value={formatVolume(scenario.visibleDaily.at(-1)?.volume ?? 0)} />
               <Metric label="20日量比" value={`${(intradayVolume / Math.max(volumeMa20, 1)).toFixed(2)}x`} />
               <Metric label="换手率" value={`${scenario.decisionBar.turnoverRate.toFixed(2)}%`} />
               <Metric label="PE" value={scenario.base.stock.pe.toFixed(1)} />
@@ -301,8 +335,9 @@ function KLineChart({ bars, compact = false }: { bars: OhlcvBar[]; compact?: boo
 }
 
 function MaLine({ values, x, y, className }: { values: Array<number | null>; x: (index: number) => number; y: (value: number) => number; className: string }) {
+  const firstValid = values.findIndex((item) => item !== null);
   const path = values
-    .map((value, index) => (value === null ? null : `${index === values.findIndex((item) => item !== null) ? 'M' : 'L'} ${x(index).toFixed(2)} ${y(value).toFixed(2)}`))
+    .map((value, index) => (value === null ? null : `${index === firstValid ? 'M' : 'L'} ${x(index).toFixed(2)} ${y(value).toFixed(2)}`))
     .filter(Boolean)
     .join(' ');
   if (!path) return null;
