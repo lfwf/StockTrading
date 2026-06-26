@@ -77,7 +77,7 @@ export default function App() {
       </header>
 
       <section className="status-bar">
-        <StatusItem label="当前时间" value={showDate ? scenario.visibleUntil : `${currentTime} · 第${scenario.base.decisionIndex >= 0 ? scenario.base.daily.indexOf(scenario.decisionBar) - scenario.base.decisionIndex + 1 : 1}日`} highlight />
+        <StatusItem label="当前时间" value={showDate ? scenario.visibleUntil : currentTime} highlight />
         <StatusItem label="总资产" value={`¥${currentEquity.toFixed(2)}`} highlight />
         <StatusItem label="可用现金" value={`¥${portfolio.cash.toFixed(2)}`} />
         <StatusItem label="持仓 / 可卖" value={`${heldQuantity} / ${availableQuantity} 股`} />
