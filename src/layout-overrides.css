@@ -1,0 +1,27 @@
+/* Compact blind-training header: controls live in the status bar. */
+.status-bar {
+  grid-template-columns: .8fr 1.05fr 1.1fr .7fr 1.35fr .9fr .42fr;
+}
+
+.status-toggle {
+  height: 100%;
+  min-height: 48px;
+  padding: 8px 10px;
+  font-weight: 800;
+}
+
+@media (max-width: 1380px) {
+  .status-bar {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .status-bar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .status-toggle {
+    min-height: 42px;
+  }
+}

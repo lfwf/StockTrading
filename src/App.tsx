@@ -60,22 +60,15 @@ export default function App() {
     advanceHour,
     advanceDay,
   } = trainer;
+  const detailsVisible = showStock && showDate;
+  const toggleDetails = () => {
+    const next = !detailsVisible;
+    setShowStock(next);
+    setShowDate(next);
+  };
 
   return (
     <div className="app-shell">
-      <header className="top-toolbar">
-        <div>
-          <p className="eyebrow">盲盘训练 · A股买入决策挑战</p>
-          <h1>只看当时数据，训练买入纪律</h1>
-          <p className="hero-copy">买前记录判断，买后复盘原因；错题会自动进入专项训练。</p>
-        </div>
-        <div className="toolbar-actions">
-          <button className="ghost-btn" onClick={() => setShowStock((value) => !value)}>{showStock ? '隐藏股票' : '显示股票'}</button>
-          <button className="ghost-btn" onClick={() => setShowDate((value) => !value)}>{showDate ? '隐藏日期' : '显示日期'}</button>
-          <button className="primary-btn" onClick={() => resetTraining()} disabled={heldQuantity > 0 || isBankrupt}>下一题</button>
-        </div>
-      </header>
-
       <section className="status-bar">
         <StatusItem label="当前时间" value={showDate ? scenario.visibleUntil : currentTime} highlight />
         <StatusItem label="总资产" value={`¥${currentEquity.toFixed(2)}`} highlight />
@@ -83,6 +76,7 @@ export default function App() {
         <StatusItem label="持仓 / 可卖" value={`${heldQuantity} / ${availableQuantity} 股`} />
         <StatusItem label="股票" value={showStock ? `${scenario.base.stock.name} ${scenario.base.stock.symbol}` : `已隐藏 · ${scenario.base.stock.industry}`} />
         <StatusItem label="日期" value={showDate ? scenario.visibleUntil : '已隐藏'} />
+        <button className="status-toggle ghost-btn" onClick={toggleDetails}>{detailsVisible ? '隐藏' : '显示'}</button>
       </section>
 
       <section className="mode-row">
