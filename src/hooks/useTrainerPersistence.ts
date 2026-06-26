@@ -1,7 +1,14 @@
 import { useEffect } from 'react';
 import type { MarketCursor, PortfolioState, TimeMode } from '../types';
 import type { MistakeItem } from '../domain/learning';
-import type { BackendSummary } from './useTradingTrainer';
+
+export type BackendSummary = {
+  trade_count: number;
+  buy_count: number;
+  sell_count: number;
+  realized_pnl: number;
+  winning_sells: number;
+};
 
 export function useTrainerPersistence(params: {
   portfolio: PortfolioState;
