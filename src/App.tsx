@@ -4,9 +4,8 @@ import { change, formatVolume, moneyYi, pct } from './lib/indicators';
 import { ChartHeader, Metric, StatusItem } from './components/common';
 import { IntradayChart, KLineChart } from './components/Charts';
 import { DecisionChecklist } from './components/DecisionChecklist';
-import { MistakeBookPanel, TrainingPresetPanel } from './components/TrainingPanels';
+import { MistakeBookPanel, TrainingPresetDropdown } from './components/TrainingPanels';
 import { ReviewPanel } from './components/ReviewPanel';
-import { TRAINING_PRESETS } from './domain/learning';
 import { useTradingTrainer } from './hooks/useTradingTrainer';
 
 const POSITION_SIZES: PositionSize[] = [25, 50, 100];
@@ -27,8 +26,8 @@ export default function App() {
     advisor,
     userChoice,
     tradeMessage,
-    trainingPreset,
-    setTrainingPreset,
+    trainingPresets,
+    toggleTrainingPreset,
     checklist,
     setChecklist,
     mistakes,
@@ -76,22 +75,22 @@ export default function App() {
         <StatusItem label="持仓 / 可卖" value={`${heldQuantity} / ${availableQuantity} 股`} />
         <StatusItem label="股票" value={showStock ? `${scenario.base.stock.name} ${scenario.base.stock.symbol}` : `已隐藏 · ${scenario.base.stock.industry}`} />
         <StatusItem label="日期" value={showDate ? scenario.visibleUntil : '已隐藏'} />
+        <div className="status-mode">
+          <span>训练场景</span>
+          <div>
+            {TIME_MODES.map((item) => (
+              <button key={item} className={item === scenario.mode ? 'mode-btn active' : 'mode-btn'} onClick={() => switchMode(item)}>
+                {getModeLabel(item).replace(' ', '')}
+              </button>
+            ))}
+          </div>
+        </div>
+        <TrainingPresetDropdown value={trainingPresets} onToggle={toggleTrainingPreset} mistakes={mistakes.length} />
         <button className="status-toggle ghost-btn" onClick={toggleDetails}>{detailsVisible ? '隐藏' : '显示'}</button>
       </section>
 
-      <section className="mode-row">
-        <span>训练场景</span>
-        {TIME_MODES.map((item) => (
-          <button key={item} className={item === scenario.mode ? 'mode-btn active' : 'mode-btn'} onClick={() => switchMode(item)}>
-            {getModeLabel(item)}
-          </button>
-        ))}
-        <p>{dataStatus} · 当前专项：{TRAINING_PRESETS.find((item) => item.key === trainingPreset)?.title} · 匹配 {filteredCount || trainingCases.length} 题</p>
-      </section>
-
-      <section className="training-grid">
-        <TrainingPresetPanel value={trainingPreset} onChange={setTrainingPreset} mistakes={mistakes.length} />
-        <MistakeBookPanel mistakes={mistakes} onTrain={() => setTrainingPreset('mistakes')} onClear={() => setMistakes([])} />
+      <section className="data-row">
+        {dataStatus} · 匹配 {filteredCount || trainingCases.length} 题
       </section>
 
       <main className="workspace">
@@ -197,6 +196,16 @@ export default function App() {
           currentEquity={currentEquity}
           backendSummary={backendSummary}
           checklist={checklist}
+        />
+      </section>
+
+      <section className="mistake-bottom">
+        <MistakeBookPanel
+          mistakes={mistakes}
+          onTrain={() => {
+            if (!trainingPresets.includes('mistakes')) toggleTrainingPreset('mistakes');
+          }}
+          onClear={() => setMistakes([])}
         />
       </section>
     </div>

@@ -8,7 +8,7 @@ import { buyShares, createPortfolio, equity, normalizePortfolio, persistTrade, p
 import { computeTrainerMetrics } from '../domain/trainerMetrics';
 import {
   DEFAULT_CHECKLIST,
-  caseMatchesPreset,
+  caseMatchesAnyPreset,
   checklistReasons,
   createMistakeItem,
   loadMistakes,
@@ -34,7 +34,7 @@ export function useTradingTrainer() {
   const [advisor, setAdvisor] = useState<AdvisorResult | null>(null);
   const [userChoice, setUserChoice] = useState<DecisionChoice | null>(null);
   const [tradeMessage, setTradeMessage] = useState('');
-  const [trainingPreset, setTrainingPreset] = useState<TrainingPreset>('random');
+  const [trainingPresets, setTrainingPresets] = useState<TrainingPreset[]>(['random']);
   const [checklist, setChecklist] = useState<DecisionChecklistState>(DEFAULT_CHECKLIST);
   const [mistakes, setMistakes] = useState<MistakeItem[]>(() => loadMistakes());
   const [backendSummary, setBackendSummary] = useState<BackendSummary | null>(null);
@@ -49,7 +49,7 @@ export function useTradingTrainer() {
   });
 
   const scenario = useMemo(() => buildTradingScenarioView(baseCase, cursor), [baseCase, cursor]);
-  const metrics = useMemo(() => computeTrainerMetrics({ scenario, portfolio, trainingCases, trainingPreset, mistakes }), [scenario, portfolio, trainingCases, trainingPreset, mistakes]);
+  const metrics = useMemo(() => computeTrainerMetrics({ scenario, portfolio, trainingCases, trainingPresets, mistakes }), [scenario, portfolio, trainingCases, trainingPresets, mistakes]);
   const {
     currentDate,
     currentTime,
@@ -93,9 +93,20 @@ export function useTradingTrainer() {
   });
 
   function getNextBaseCase(seed: number): BaseCase {
-    const filtered = trainingCases.filter((item) => caseMatchesPreset(item, trainingPreset, mistakes));
+    const filtered = trainingCases.filter((item) => caseMatchesAnyPreset(item, trainingPresets, mistakes));
     const source = filtered.length > 0 ? filtered : trainingCases;
     return pickTrainingCase(source, seed) ?? createBaseCase(seed);
+  }
+
+  function toggleTrainingPreset(preset: TrainingPreset) {
+    setTrainingPresets((current) => {
+      if (preset === 'random') return ['random'];
+      const withoutRandom = current.filter((item) => item !== 'random');
+      const next = withoutRandom.includes(preset)
+        ? withoutRandom.filter((item) => item !== preset)
+        : [...withoutRandom, preset];
+      return next.length ? next : ['random'];
+    });
   }
 
   function resetTraining(seed = Date.now() + Math.floor(Math.random() * 100000)) {
@@ -109,7 +120,7 @@ export function useTradingTrainer() {
     }
 
     const nextBase = getNextBaseCase(seed);
-    const nextMode = createRandomMode(seed);
+    const nextMode = mode;
     setBaseCase(nextBase);
     setMode(nextMode);
     setCursor(initialCursorForMode(nextBase, nextMode));
@@ -262,6 +273,7 @@ export function useTradingTrainer() {
     }
 
     setCursor({ dayOffset: nextOffset, pointIndex: 0 });
+    setMode('open');
     setReview(null);
     if (heldQuantity === 0) {
       setAdvisor(null);
@@ -283,8 +295,8 @@ export function useTradingTrainer() {
     advisor,
     userChoice,
     tradeMessage,
-    trainingPreset,
-    setTrainingPreset,
+    trainingPresets,
+    toggleTrainingPreset,
     checklist,
     setChecklist,
     mistakes,

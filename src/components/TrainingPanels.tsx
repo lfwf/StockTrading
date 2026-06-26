@@ -2,6 +2,38 @@ import { getModeLabel } from '../lib/market';
 import type { MistakeItem, TrainingPreset } from '../domain/learning';
 import { TRAINING_PRESETS } from '../domain/learning';
 
+export function TrainingPresetDropdown({
+  value,
+  onToggle,
+  mistakes,
+}: {
+  value: TrainingPreset[];
+  onToggle: (value: TrainingPreset) => void;
+  mistakes: number;
+}) {
+  const active = value.length ? value : ['random'];
+  const label = active.includes('random')
+    ? '随机盲盘'
+    : active.map((key) => TRAINING_PRESETS.find((item) => item.key === key)?.title).filter(Boolean).join('、');
+
+  return (
+    <details className="status-dropdown">
+      <summary>
+        <span>专项训练</span>
+        <b>{label}</b>
+      </summary>
+      <div className="dropdown-menu">
+        {TRAINING_PRESETS.map((item) => (
+          <label key={item.key} className="dropdown-option">
+            <input type="checkbox" checked={active.includes(item.key)} onChange={() => onToggle(item.key)} />
+            <span>{item.title}{item.key === 'mistakes' ? ` · ${mistakes}` : ''}</span>
+          </label>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 export function TrainingPresetPanel({ value, onChange, mistakes }: { value: TrainingPreset; onChange: (value: TrainingPreset) => void; mistakes: number }) {
   return (
     <div className="card training-card">

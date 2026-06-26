@@ -1,16 +1,16 @@
 import type { BaseCase, PortfolioState, ScenarioView } from '../types';
 import { average, change, rollingHigh, rollingLow } from '../lib/indicators';
 import { averageCost, equity, positionQuantity, sellableQuantity } from '../lib/trading';
-import { caseMatchesPreset, type MistakeItem, type TrainingPreset } from './learning';
+import { caseMatchesAnyPreset, type MistakeItem, type TrainingPreset } from './learning';
 
 export function computeTrainerMetrics(params: {
   scenario: ScenarioView;
   portfolio: PortfolioState;
   trainingCases: BaseCase[];
-  trainingPreset: TrainingPreset;
+  trainingPresets: TrainingPreset[];
   mistakes: MistakeItem[];
 }) {
-  const { scenario, portfolio, trainingCases, trainingPreset, mistakes } = params;
+  const { scenario, portfolio, trainingCases, trainingPresets, mistakes } = params;
   const currentDate = scenario.decisionBar.date;
   const currentTime = scenario.visibleIntraday.at(-1)?.time ?? '09:30';
   const heldQuantity = positionQuantity(portfolio);
@@ -30,7 +30,7 @@ export function computeTrainerMetrics(params: {
   const indexLast = scenario.visibleIndexIntraday.at(-1)?.price ?? scenario.visibleIndexDaily.at(-1)?.close ?? 0;
   const indexPreClose = scenario.visibleIndexDaily.at(-1)?.preClose ?? scenario.visibleIndexDaily.at(-1)?.close ?? 1;
   const indexChange = change(indexPreClose, indexLast);
-  const filteredCount = trainingCases.filter((item) => caseMatchesPreset(item, trainingPreset, mistakes)).length;
+  const filteredCount = trainingCases.filter((item) => caseMatchesAnyPreset(item, trainingPresets, mistakes)).length;
 
   return {
     currentDate,

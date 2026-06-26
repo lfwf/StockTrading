@@ -127,6 +127,12 @@ export function caseMatchesPreset(item: BaseCase, preset: TrainingPreset, mistak
   return true;
 }
 
+export function caseMatchesAnyPreset(item: BaseCase, presets: TrainingPreset[], mistakes: MistakeItem[]): boolean {
+  const active: TrainingPreset[] = presets.length ? presets : ['random'];
+  if (active.includes('random')) return true;
+  return active.some((preset) => caseMatchesPreset(item, preset, mistakes));
+}
+
 export function shouldRecordMistake(result: ReviewResult, action: DecisionChoice): boolean {
   if (action === 'buy') {
     return result.maxDrawdown <= -0.06 || (result.ret5 ?? 0) <= -0.04 || result.tags.includes('买入后回撤偏大') || result.tags.includes('主观冲动理由');
