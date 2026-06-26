@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { AdvisorResult, BaseCase, DecisionChoice, DecisionInput, IntradayPoint, MarketCursor, PortfolioState, PositionSize, ReviewResult, TimeMode } from '../types';
 import { buildTradingScenarioView, createBaseCase, createRandomMode, initialCursorForMode } from '../lib/market';
-import { average, change, rollingHigh, rollingLow } from '../lib/indicators';
 import { reviewDecision, reviewSkip } from '../lib/review';
-import { loadTrainingDataset, pickTrainingCase } from '../lib/dataset';
+import { pickTrainingCase } from '../lib/dataset';
 import { assessScenario } from '../lib/advisor';
-import { averageCost, buyShares, createPortfolio, equity, persistTrade, positionQuantity, sellableQuantity, sellShares } from '../lib/trading';
+import { buyShares, createPortfolio, equity, persistTrade, positionQuantity, sellShares } from '../lib/trading';
+import { computeTrainerMetrics } from '../domain/trainerMetrics';
 import {
   DEFAULT_CHECKLIST,
   caseMatchesPreset,
@@ -17,14 +17,8 @@ import {
   type MistakeItem,
   type TrainingPreset,
 } from '../domain/learning';
-
-export type BackendSummary = {
-  trade_count: number;
-  buy_count: number;
-  sell_count: number;
-  realized_pnl: number;
-  winning_sells: number;
-};
+import { useDatasetBootstrap } from './useDatasetBootstrap';
+import { useTrainerPersistence, type BackendSummary } from './useTrainerPersistence';
 
 export function useTradingTrainer() {
   const [trainingCases, setTrainingCases] = useState<BaseCase[]>([]);
@@ -50,95 +44,48 @@ export function useTradingTrainer() {
   });
 
   const scenario = useMemo(() => buildTradingScenarioView(baseCase, cursor), [baseCase, cursor]);
-  const currentDate = scenario.decisionBar.date;
-  const currentTime = scenario.visibleIntraday.at(-1)?.time ?? '09:30';
-  const heldQuantity = positionQuantity(portfolio);
-  const availableQuantity = sellableQuantity(portfolio, currentDate);
-  const currentEquity = equity(portfolio, scenario.buyPrice);
-  const cost = averageCost(portfolio);
-  const isBankrupt = currentEquity <= 0.01;
+  const metrics = useMemo(() => computeTrainerMetrics({ scenario, portfolio, trainingCases, trainingPreset, mistakes }), [scenario, portfolio, trainingCases, trainingPreset, mistakes]);
+  const {
+    currentDate,
+    currentTime,
+    heldQuantity,
+    availableQuantity,
+    currentEquity,
+    cost,
+    isBankrupt,
+    intradayHigh,
+    intradayLow,
+    intradayVolume,
+    openChange,
+    visibleHigh20,
+    visibleLow20,
+    visibleHigh60,
+    volumeMa20,
+    indexChange,
+    filteredCount,
+  } = metrics;
 
-  useEffect(() => {
-    let cancelled = false;
+  useDatasetBootstrap({
+    portfolio,
+    onTrainingCases: setTrainingCases,
+    onDataStatus: setDataStatus,
+    onBaseCase: setBaseCase,
+    onMode: setMode,
+    onCursor: setCursor,
+    onReview: setReview,
+    onAdvisor: (value) => setAdvisor(value),
+    onUserChoice: (value) => setUserChoice(value),
+  });
 
-    loadTrainingDataset().then((dataset) => {
-      if (cancelled) return;
-      if (!dataset) {
-        setDataStatus('模拟数据 · 运行 AKShare 脚本后自动切换');
-        return;
-      }
-
-      const seed = Date.now() + Math.floor(Math.random() * 100000);
-      const savedGame = localStorage.getItem('stock-trading-game');
-      const saved = savedGame ? JSON.parse(savedGame) as { caseId?: string; cursor?: MarketCursor; mode?: TimeMode } : null;
-      const heldCaseId = portfolio.lots.length > 0 ? portfolio.trades.at(-1)?.caseId : null;
-      const picked = (heldCaseId ? dataset.cases.find((item) => item.id === heldCaseId) : null)
-        ?? (saved?.caseId ? dataset.cases.find((item) => item.id === saved.caseId) : null)
-        ?? pickTrainingCase(dataset.cases, seed);
-
-      setTrainingCases(dataset.cases);
-      const minuteStatus = dataset.quality
-        ? `真实分钟线 ${dataset.quality.realStockIntradayCases}/${dataset.quality.totalCases}`
-        : '分钟线质量未标记';
-      setDataStatus(`${dataset.source} · 真实日线 · ${minuteStatus} · ${dataset.cases.length}题 · ${dataset.generatedAt.slice(0, 10)}`);
-
-      if (picked) {
-        const nextMode = saved?.mode ?? createRandomMode(seed);
-        setBaseCase(picked);
-        setMode(nextMode);
-        setCursor(saved?.caseId === picked.id && saved.cursor ? saved.cursor : initialCursorForMode(picked, nextMode));
-        setReview(null);
-        setAdvisor(null);
-        setUserChoice(null);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem('stock-trading-portfolio', JSON.stringify(portfolio));
-    fetch('/api/sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId: portfolio.sessionId,
-        initialCash: portfolio.initialCash,
-        cash: portfolio.cash,
-        equity: currentEquity,
-      }),
-    }).catch(() => undefined);
-  }, [portfolio, currentEquity]);
-
-  useEffect(() => {
-    localStorage.setItem('stock-trading-mistakes', JSON.stringify(mistakes.slice(0, 80)));
-  }, [mistakes]);
-
-  useEffect(() => {
-    fetch(`/api/analysis?sessionId=${encodeURIComponent(portfolio.sessionId)}`)
-      .then((response) => response.ok ? response.json() : null)
-      .then((data) => setBackendSummary(data?.summary ?? null))
-      .catch(() => undefined);
-  }, [portfolio.sessionId, portfolio.trades.length]);
-
-  useEffect(() => {
-    localStorage.setItem('stock-trading-game', JSON.stringify({ caseId: baseCase.id, cursor, mode }));
-  }, [baseCase.id, cursor, mode]);
-
-  const intradayHigh = Math.max(...scenario.visibleIntraday.map((point) => point.price));
-  const intradayLow = Math.min(...scenario.visibleIntraday.map((point) => point.price));
-  const intradayVolume = scenario.visibleIntraday.reduce((sum, point) => sum + point.volume, 0);
-  const openChange = change(scenario.decisionBar.preClose, scenario.buyPrice);
-  const visibleHigh20 = rollingHigh(scenario.visibleDaily, Math.min(20, scenario.visibleDaily.length));
-  const visibleLow20 = rollingLow(scenario.visibleDaily, Math.min(20, scenario.visibleDaily.length));
-  const visibleHigh60 = rollingHigh(scenario.visibleDaily, Math.min(60, scenario.visibleDaily.length));
-  const volumeMa20 = average(scenario.visibleDaily.slice(-20).map((bar) => bar.volume));
-  const indexLast = scenario.visibleIndexIntraday.at(-1)?.price ?? scenario.visibleIndexDaily.at(-1)?.close ?? 0;
-  const indexPreClose = scenario.visibleIndexDaily.at(-1)?.preClose ?? scenario.visibleIndexDaily.at(-1)?.close ?? 1;
-  const indexChange = change(indexPreClose, indexLast);
-  const filteredCount = trainingCases.filter((item) => caseMatchesPreset(item, trainingPreset, mistakes)).length;
+  useTrainerPersistence({
+    portfolio,
+    currentEquity,
+    mistakes,
+    baseCaseId: baseCase.id,
+    cursor,
+    mode,
+    onBackendSummary: setBackendSummary,
+  });
 
   function getNextBaseCase(seed: number): BaseCase {
     const filtered = trainingCases.filter((item) => caseMatchesPreset(item, trainingPreset, mistakes));
