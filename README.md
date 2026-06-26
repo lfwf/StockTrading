@@ -14,7 +14,7 @@
 - 遵守A股 T+1：当天买入的持仓下一交易日才可卖出
 - 可按下一小时或下一交易日推进真实5分钟行情
 - 清仓后进入下一题，资金与累计收益跨题保留
-- SQLite 后台记录每笔成交、已实现盈亏与账户权益
+- PostgreSQL 后台记录每笔成交、已实现盈亏与账户权益
 - 结果复盘：1/3/5/10/20 日收益、最大浮盈、最大回撤、相对沪深 300 表现
 - 规则化复盘标签：短线追高、大周期逆势、上午冲高回落、收盘突破等
 - AKShare + BaoStock 数据同步脚本：生成 `public/data/training-cases.json`
@@ -37,7 +37,15 @@ npm run build
 npm run start
 ```
 
-Node 服务同时提供静态页面、交易记录 API 和 SQLite 数据库。数据库默认写入 `data/trading.db`。
+Node 服务同时提供静态页面和交易记录 API。数据库默认连接本机 PostgreSQL：
+
+```text
+database: stock_trading
+host: /var/run/postgresql
+user: 当前运行用户
+```
+
+也可以通过 `DATABASE_URL`、`PGDATABASE`、`PGHOST`、`PGUSER` 覆盖连接配置。
 
 ## 使用 AKShare + BaoStock 生成训练数据
 
@@ -111,7 +119,7 @@ React 前端盲盘训练
 
 ## 全量行情数据库与定时同步
 
-后端行情库写入 `data/market.db`，用于保存沪深300成分股、前复权日线和 BaoStock 5 分钟线。
+后端行情库写入 PostgreSQL `stock_trading` 数据库，用于保存沪深300成分股、前复权日线和 BaoStock 5 分钟线。
 
 手动执行一次：
 
@@ -123,6 +131,12 @@ scripts/run_market_sync.sh
 
 ```bash
 scripts/run_market_sync.sh --symbols 600519,300750
+```
+
+从旧 SQLite 数据迁移到 PostgreSQL：
+
+```bash
+python scripts/migrate_sqlite_to_postgres.py
 ```
 
 定时任务建议每天凌晨 1 点运行：

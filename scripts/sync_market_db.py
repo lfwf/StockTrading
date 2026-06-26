@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""Sync HS300 market data into SQLite.
+"""Sync HS300 market data into PostgreSQL.
 
-This script is intentionally separate from the front-end training-case
-generator. It keeps a reusable local market database that can be refreshed by
-cron:
+The job keeps a reusable local market database:
 
-    - all current HS300 members
+    - current HS300 members
     - adjusted daily bars from listing date when available
     - BaoStock 5-minute bars from the free historical minute coverage window
 
@@ -18,16 +16,17 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
-import sqlite3
+import os
 import sys
 import time
 from contextlib import contextmanager
-from dataclasses import asdict
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Iterable
 
 import baostock as bs
+import psycopg
+from psycopg.rows import dict_row
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -43,22 +42,17 @@ from scripts.sync_akshare import (  # noqa: E402
 
 
 DATE_FMT = "%Y%m%d"
-SQLITE_PRAGMAS = (
-    "PRAGMA journal_mode=WAL",
-    "PRAGMA synchronous=NORMAL",
-    "PRAGMA temp_store=MEMORY",
-    "PRAGMA busy_timeout=30000",
-)
 
 
-def compact_date(value: str) -> str:
-    return value.replace("-", "")
+def compact_date(value: str | date) -> str:
+    return str(value).replace("-", "")
 
 
-def dashed_date(value: str) -> str:
-    if "-" in value:
-        return value
-    return f"{value[0:4]}-{value[4:6]}-{value[6:8]}"
+def dashed_date(value: str | date) -> str:
+    text = str(value)
+    if "-" in text:
+        return text
+    return f"{text[0:4]}-{text[4:6]}-{text[6:8]}"
 
 
 def now_text() -> str:
@@ -76,91 +70,95 @@ def process_lock(path: Path) -> Iterable[None]:
         yield
 
 
-def connect(db_path: Path) -> sqlite3.Connection:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    for pragma in SQLITE_PRAGMAS:
-        conn.execute(pragma)
-    return conn
-
-
-def ensure_schema(conn: sqlite3.Connection) -> None:
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS members (
-            symbol TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            market TEXT NOT NULL,
-            industry TEXT NOT NULL,
-            active INTEGER NOT NULL DEFAULT 1,
-            updated_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS daily_bars (
-            symbol TEXT NOT NULL,
-            date TEXT NOT NULL,
-            open REAL NOT NULL,
-            high REAL NOT NULL,
-            low REAL NOT NULL,
-            close REAL NOT NULL,
-            pre_close REAL NOT NULL,
-            volume INTEGER NOT NULL,
-            amount INTEGER NOT NULL,
-            turnover_rate REAL NOT NULL,
-            PRIMARY KEY (symbol, date)
-        );
-
-        CREATE TABLE IF NOT EXISTS minute_bars (
-            symbol TEXT NOT NULL,
-            date TEXT NOT NULL,
-            time TEXT NOT NULL,
-            price REAL NOT NULL,
-            avg_price REAL NOT NULL,
-            volume INTEGER NOT NULL,
-            PRIMARY KEY (symbol, date, time)
-        );
-
-        CREATE TABLE IF NOT EXISTS sync_runs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            started_at TEXT NOT NULL,
-            finished_at TEXT,
-            status TEXT NOT NULL,
-            members_total INTEGER NOT NULL DEFAULT 0,
-            daily_rows INTEGER NOT NULL DEFAULT 0,
-            minute_rows INTEGER NOT NULL DEFAULT 0,
-            errors_json TEXT NOT NULL DEFAULT '[]'
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_daily_symbol_date
-            ON daily_bars(symbol, date);
-        CREATE INDEX IF NOT EXISTS idx_minute_symbol_date
-            ON minute_bars(symbol, date);
-        """
+def connect(args: argparse.Namespace) -> psycopg.Connection[Any]:
+    if args.database_url:
+        return psycopg.connect(args.database_url, row_factory=dict_row)
+    return psycopg.connect(
+        dbname=args.db_name,
+        host=args.db_host,
+        user=args.db_user,
+        row_factory=dict_row,
     )
+
+
+def ensure_schema(conn: psycopg.Connection[Any]) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS members (
+                symbol TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                market TEXT NOT NULL,
+                industry TEXT NOT NULL,
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                updated_at TIMESTAMPTZ NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS daily_bars (
+                symbol TEXT NOT NULL,
+                date DATE NOT NULL,
+                open DOUBLE PRECISION NOT NULL,
+                high DOUBLE PRECISION NOT NULL,
+                low DOUBLE PRECISION NOT NULL,
+                close DOUBLE PRECISION NOT NULL,
+                pre_close DOUBLE PRECISION NOT NULL,
+                volume BIGINT NOT NULL,
+                amount BIGINT NOT NULL,
+                turnover_rate DOUBLE PRECISION NOT NULL,
+                PRIMARY KEY (symbol, date)
+            );
+
+            CREATE TABLE IF NOT EXISTS minute_bars (
+                symbol TEXT NOT NULL,
+                date DATE NOT NULL,
+                time TIME NOT NULL,
+                price DOUBLE PRECISION NOT NULL,
+                avg_price DOUBLE PRECISION NOT NULL,
+                volume BIGINT NOT NULL,
+                PRIMARY KEY (symbol, date, time)
+            );
+
+            CREATE TABLE IF NOT EXISTS sync_runs (
+                id BIGSERIAL PRIMARY KEY,
+                started_at TIMESTAMPTZ NOT NULL,
+                finished_at TIMESTAMPTZ,
+                status TEXT NOT NULL,
+                members_total INTEGER NOT NULL DEFAULT 0,
+                daily_rows BIGINT NOT NULL DEFAULT 0,
+                minute_rows BIGINT NOT NULL DEFAULT 0,
+                errors_json JSONB NOT NULL DEFAULT '[]'::jsonb
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_daily_symbol_date
+                ON daily_bars(symbol, date);
+            CREATE INDEX IF NOT EXISTS idx_minute_symbol_date
+                ON minute_bars(symbol, date);
+            """
+        )
     conn.commit()
 
 
-def begin_run(conn: sqlite3.Connection) -> int:
-    conn.execute(
-        """
-        UPDATE sync_runs
-           SET finished_at = COALESCE(finished_at, ?),
-               status = 'interrupted'
-         WHERE status = 'running'
-        """,
-        (now_text(),),
-    )
-    cursor = conn.execute(
-        "INSERT INTO sync_runs(started_at, status) VALUES (?, ?)",
-        (now_text(), "running"),
-    )
+def begin_run(conn: psycopg.Connection[Any]) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE sync_runs
+               SET finished_at = COALESCE(finished_at, now()),
+                   status = 'interrupted'
+             WHERE status = 'running'
+            """
+        )
+        cur.execute(
+            "INSERT INTO sync_runs(started_at, status) VALUES (now(), %s) RETURNING id",
+            ("running",),
+        )
+        run_id = int(cur.fetchone()["id"])
     conn.commit()
-    return int(cursor.lastrowid)
+    return run_id
 
 
 def finish_run(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection[Any],
     run_id: int,
     status: str,
     members_total: int,
@@ -168,96 +166,105 @@ def finish_run(
     minute_rows: int,
     errors: list[dict[str, Any]],
 ) -> None:
-    conn.execute(
-        """
-        UPDATE sync_runs
-           SET finished_at = ?,
-               status = ?,
-               members_total = ?,
-               daily_rows = ?,
-               minute_rows = ?,
-               errors_json = ?
-         WHERE id = ?
-        """,
-        (
-            now_text(),
-            status,
-            members_total,
-            daily_rows,
-            minute_rows,
-            json.dumps(errors[-200:], ensure_ascii=False),
-            run_id,
-        ),
-    )
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE sync_runs
+               SET finished_at = now(),
+                   status = %s,
+                   members_total = %s,
+                   daily_rows = %s,
+                   minute_rows = %s,
+                   errors_json = %s::jsonb
+             WHERE id = %s
+            """,
+            (
+                status,
+                members_total,
+                daily_rows,
+                minute_rows,
+                json.dumps(errors[-200:], ensure_ascii=False),
+                run_id,
+            ),
+        )
     conn.commit()
 
 
-def max_date(conn: sqlite3.Connection, table: str, symbol: str) -> str | None:
-    row = conn.execute(f"SELECT MAX(date) AS value FROM {table} WHERE symbol = ?", (symbol,)).fetchone()
-    return str(row["value"]) if row and row["value"] else None
+def max_date(conn: psycopg.Connection[Any], table: str, symbol: str) -> date | None:
+    if table not in {"daily_bars", "minute_bars"}:
+        raise ValueError(f"invalid table: {table}")
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT MAX(date) AS value FROM {table} WHERE symbol = %s", (symbol,))
+        row = cur.fetchone()
+    return row["value"] if row and row["value"] else None
 
 
-def upsert_members(conn: sqlite3.Connection, members: list[Any]) -> None:
-    stamp = now_text()
-    conn.execute("UPDATE members SET active = 0")
-    conn.executemany(
-        """
-        INSERT INTO members(symbol, name, market, industry, active, updated_at)
-        VALUES (:symbol, :name, :market, :industry, 1, :updated_at)
-        ON CONFLICT(symbol) DO UPDATE SET
-            name = excluded.name,
-            market = excluded.market,
-            industry = excluded.industry,
-            active = 1,
-            updated_at = excluded.updated_at
-        """,
-        [{**asdict(member), "updated_at": stamp} for member in members],
-    )
+def upsert_members(conn: psycopg.Connection[Any], members: list[Any], replace_active: bool) -> None:
+    rows = [
+        (member.symbol, member.name, member.market, member.industry)
+        for member in members
+    ]
+    with conn.cursor() as cur:
+        if replace_active:
+            cur.execute("UPDATE members SET active = FALSE")
+        cur.executemany(
+            """
+            INSERT INTO members(symbol, name, market, industry, active, updated_at)
+            VALUES (%s, %s, %s, %s, TRUE, now())
+            ON CONFLICT(symbol) DO UPDATE SET
+                name = excluded.name,
+                market = excluded.market,
+                industry = excluded.industry,
+                active = TRUE,
+                updated_at = excluded.updated_at
+            """,
+            rows,
+        )
     conn.commit()
 
 
-def upsert_daily(conn: sqlite3.Connection, symbol: str, bars: list[dict[str, Any]]) -> int:
+def upsert_daily(conn: psycopg.Connection[Any], symbol: str, bars: list[dict[str, Any]]) -> int:
     if not bars:
         return 0
-    conn.executemany(
-        """
-        INSERT INTO daily_bars(
-            symbol, date, open, high, low, close, pre_close, volume, amount, turnover_rate
+    rows = [
+        (
+            symbol,
+            bar["date"],
+            bar["open"],
+            bar["high"],
+            bar["low"],
+            bar["close"],
+            bar.get("preClose", bar["close"]),
+            int(bar.get("volume", 0)),
+            int(bar.get("amount", 0)),
+            float(bar.get("turnoverRate", 0)),
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(symbol, date) DO UPDATE SET
-            open = excluded.open,
-            high = excluded.high,
-            low = excluded.low,
-            close = excluded.close,
-            pre_close = excluded.pre_close,
-            volume = excluded.volume,
-            amount = excluded.amount,
-            turnover_rate = excluded.turnover_rate
-        """,
-        [
-            (
-                symbol,
-                bar["date"],
-                bar["open"],
-                bar["high"],
-                bar["low"],
-                bar["close"],
-                bar.get("preClose", bar["close"]),
-                int(bar.get("volume", 0)),
-                int(bar.get("amount", 0)),
-                float(bar.get("turnoverRate", 0)),
+        for bar in bars
+    ]
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO daily_bars(
+                symbol, date, open, high, low, close, pre_close, volume, amount, turnover_rate
             )
-            for bar in bars
-        ],
-    )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT(symbol, date) DO UPDATE SET
+                open = excluded.open,
+                high = excluded.high,
+                low = excluded.low,
+                close = excluded.close,
+                pre_close = excluded.pre_close,
+                volume = excluded.volume,
+                amount = excluded.amount,
+                turnover_rate = excluded.turnover_rate
+            """,
+            rows,
+        )
     conn.commit()
-    return len(bars)
+    return len(rows)
 
 
 def ensure_baostock_login() -> bool:
-    # Importing BAOSTOCK_LOGGED_IN gives us the initial module value only, but
-    # bs.login() itself is idempotent enough for this batch job.
     _ = BAOSTOCK_LOGGED_IN
     result = bs.login()
     return result.error_code == "0"
@@ -281,12 +288,12 @@ def fetch_baostock_minutes(symbol: str, start_date: str, end_date: str, frequenc
     volume_sum = 0.0
     while result.next():
         item = dict(zip(result.fields, result.get_row_data()))
-        date = str(item.get("date", ""))
+        row_date = str(item.get("date", ""))
         raw_time = str(item.get("time", ""))
         price = number(item.get("close"))
         volume = number(item.get("volume"))
-        if date != current_date:
-            current_date = date
+        if row_date != current_date:
+            current_date = row_date
             weighted_sum = 0.0
             volume_sum = 0.0
         weighted_sum += price * volume
@@ -295,7 +302,7 @@ def fetch_baostock_minutes(symbol: str, start_date: str, end_date: str, frequenc
         rows.append(
             (
                 symbol,
-                date,
+                row_date,
                 f"{raw_time[8:10]}:{raw_time[10:12]}",
                 round(price, 3),
                 round(avg_price, 3),
@@ -305,20 +312,21 @@ def fetch_baostock_minutes(symbol: str, start_date: str, end_date: str, frequenc
     return rows
 
 
-def upsert_minutes(conn: sqlite3.Connection, rows: list[tuple[Any, ...]]) -> int:
+def upsert_minutes(conn: psycopg.Connection[Any], rows: list[tuple[Any, ...]]) -> int:
     if not rows:
         return 0
-    conn.executemany(
-        """
-        INSERT INTO minute_bars(symbol, date, time, price, avg_price, volume)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(symbol, date, time) DO UPDATE SET
-            price = excluded.price,
-            avg_price = excluded.avg_price,
-            volume = excluded.volume
-        """,
-        rows,
-    )
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO minute_bars(symbol, date, time, price, avg_price, volume)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT(symbol, date, time) DO UPDATE SET
+                price = excluded.price,
+                avg_price = excluded.avg_price,
+                volume = excluded.volume
+            """,
+            rows,
+        )
     conn.commit()
     return len(rows)
 
@@ -328,8 +336,12 @@ def parse_symbols(value: str) -> set[str]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Sync HS300 daily and 5-minute bars into SQLite")
-    parser.add_argument("--db", default="data/market.db", help="SQLite database path")
+    parser = argparse.ArgumentParser(description="Sync HS300 daily and 5-minute bars into PostgreSQL")
+    parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL", ""), help="PostgreSQL connection string")
+    parser.add_argument("--db-name", default=os.environ.get("PGDATABASE", "stock_trading"), help="PostgreSQL database")
+    parser.add_argument("--db-host", default=os.environ.get("PGHOST", "/var/run/postgresql"), help="PostgreSQL host/socket")
+    parser.add_argument("--db-user", default=os.environ.get("PGUSER", os.environ.get("USER", "root")), help="PostgreSQL user")
+    parser.add_argument("--lock-file", default="data/market-sync.lock", help="local process lock file")
     parser.add_argument("--daily-start", default="19900101", help="daily backfill start, YYYYMMDD")
     parser.add_argument("--minute-start", default="20200101", help="BaoStock minute backfill start, YYYYMMDD")
     parser.add_argument("--end-date", default=datetime.now().strftime(DATE_FMT), help="sync end date, YYYYMMDD")
@@ -339,17 +351,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--symbols", default="", help="optional comma-separated symbol allowlist")
     parser.add_argument("--daily-only", action="store_true", help="skip minute sync")
     parser.add_argument("--minute-only", action="store_true", help="skip daily sync")
+    parser.add_argument("--members-only", action="store_true", help="refresh HS300 members only")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    db_path = ROOT / args.db if not Path(args.db).is_absolute() else Path(args.db)
-    lock_path = db_path.with_suffix(".lock")
+    lock_path = ROOT / args.lock_file if not Path(args.lock_file).is_absolute() else Path(args.lock_file)
     allowed_symbols = parse_symbols(args.symbols) if args.symbols else set()
 
     with process_lock(lock_path):
-        conn = connect(db_path)
+        conn = connect(args)
         ensure_schema(conn)
         run_id = begin_run(conn)
         members_total = 0
@@ -363,8 +375,13 @@ def main() -> None:
             if allowed_symbols:
                 members = [member for member in members if member.symbol in allowed_symbols]
             members_total = len(members)
-            upsert_members(conn, members)
-            print(f"[{now_text()}] members={members_total} db={db_path}", flush=True)
+            upsert_members(conn, members, replace_active=not bool(allowed_symbols))
+            print(f"[{now_text()}] members={members_total} db=postgresql/{args.db_name}", flush=True)
+
+            if args.members_only:
+                finish_run(conn, run_id, "ok", members_total, 0, 0, errors)
+                print(f"[{now_text()}] finished status=ok members={members_total} daily=0 minute=0 errors=0", flush=True)
+                return
 
             if not args.daily_only:
                 minute_logged_in = ensure_baostock_login()
