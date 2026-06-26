@@ -22,6 +22,7 @@ import argparse
 import json
 import math
 import random
+import signal
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -29,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 import akshare as ak
+import baostock as bs
 import pandas as pd
 
 
@@ -42,6 +44,8 @@ FALLBACK_MEMBERS = [
     {"symbol": "000333", "name": "美的集团", "industry": "家用电器", "market": "深市"},
     {"symbol": "002415", "name": "海康威视", "industry": "计算机", "market": "深市"},
 ]
+
+BAOSTOCK_LOGGED_IN = False
 
 
 @dataclass
@@ -79,35 +83,59 @@ def infer_market(symbol: str) -> str:
 
 
 def fetch_hs300_members(limit: int) -> list[Member]:
-    frames: list[pd.DataFrame] = []
+    candidates: list[list[Member]] = []
 
-    # Common AKShare path for CSI index constituents.
+    # Use multiple free AKShare constituent sources. Some upstream endpoints can
+    # occasionally return an incomplete HS300 list, so we normalize each result
+    # and choose the most complete one instead of trusting the first response.
     for call in (
         lambda: ak.index_stock_cons(symbol="000300"),
-        lambda: ak.index_stock_cons_csindex(symbol="000300"),
+        lambda: ak.index_stock_cons_weight_csindex(symbol="000300"),
+        lambda: ak.index_stock_cons_sina(symbol="000300"),
     ):
         try:
-            frame = call()
+            frame = call_with_timeout(call, seconds=12)
             if isinstance(frame, pd.DataFrame) and not frame.empty:
-                frames.append(frame)
-                break
+                members = normalize_member_frame(frame)
+                if members:
+                    candidates.append(members)
         except Exception:
             continue
 
-    if not frames:
+    if not candidates:
         return [Member(**item) for item in FALLBACK_MEMBERS[:limit]]
 
-    df = frames[0].copy()
+    candidates.sort(key=len, reverse=True)
+    members = candidates[0]
+    return members[:limit] if members else [Member(**item) for item in FALLBACK_MEMBERS[:limit]]
+
+
+def call_with_timeout(call: Any, seconds: int) -> Any:
+    def raise_timeout(_signum: int, _frame: Any) -> None:
+        raise TimeoutError(f"AKShare call timed out after {seconds}s")
+
+    previous_handler = signal.signal(signal.SIGALRM, raise_timeout)
+    signal.alarm(seconds)
+    try:
+        return call()
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous_handler)
+
+
+def normalize_member_frame(df: pd.DataFrame) -> list[Member]:
+    frame = df.copy()
     members: list[Member] = []
-    for _, row in df.iterrows():
+    seen: set[str] = set()
+    for _, row in frame.iterrows():
         symbol = normalize_symbol(first_existing(row, ["品种代码", "成分券代码", "证券代码", "代码", "stock_code", "code"]))
-        if not symbol or len(symbol) != 6:
+        if not symbol or len(symbol) != 6 or symbol in seen:
             continue
+        seen.add(symbol)
         name = str(first_existing(row, ["品种名称", "成分券名称", "证券简称", "名称", "stock_name", "name"], symbol)).strip()
         industry = str(first_existing(row, ["行业", "所属行业", "中证行业", "industry"], "沪深300")).strip() or "沪深300"
         members.append(Member(symbol=symbol, name=name, industry=industry, market=infer_market(symbol)))
-
-    return members[:limit] if members else [Member(**item) for item in FALLBACK_MEMBERS[:limit]]
+    return members
 
 
 def number(value: Any, default: float = 0.0) -> float:
@@ -124,15 +152,92 @@ def number(value: Any, default: float = 0.0) -> float:
     return result
 
 
+def ensure_baostock_login() -> bool:
+    global BAOSTOCK_LOGGED_IN
+    if BAOSTOCK_LOGGED_IN:
+        return True
+    result = bs.login()
+    BAOSTOCK_LOGGED_IN = result.error_code == "0"
+    return BAOSTOCK_LOGGED_IN
+
+
+def baostock_code(symbol: str) -> str:
+    return f"sh.{symbol}" if symbol == "000300" or symbol.startswith("6") else f"sz.{symbol}"
+
+
+def fetch_baostock_intraday(symbol: str, date: str, period: str) -> list[dict[str, Any]]:
+    if period not in {"5", "15", "30", "60"} or not ensure_baostock_login():
+        return []
+    result = bs.query_history_k_data_plus(
+        baostock_code(symbol),
+        "date,time,open,high,low,close,volume,amount",
+        start_date=date,
+        end_date=date,
+        frequency=period,
+        adjustflag="2",
+    )
+    if result.error_code != "0":
+        return []
+
+    points: list[dict[str, Any]] = []
+    amount_sum = 0.0
+    volume_sum = 0.0
+    while result.next():
+        row = dict(zip(result.fields, result.get_row_data()))
+        price = number(row.get("close"))
+        volume = number(row.get("volume"))
+        volume_sum += volume
+        amount_sum += price * volume
+        raw_time = str(row.get("time", ""))
+        points.append({
+            "time": f"{raw_time[8:10]}:{raw_time[10:12]}",
+            "price": round(price, 3),
+            "avgPrice": round(amount_sum / volume_sum, 3) if volume_sum else round(price, 3),
+            "volume": int(volume),
+        })
+    return points
+
+
 def fetch_stock_daily(symbol: str, start_date: str, end_date: str, adjust: str) -> list[dict[str, Any]]:
-    df = ak.stock_zh_a_hist(symbol=symbol, period="daily", start_date=start_date, end_date=end_date, adjust=adjust)
-    return normalize_daily_frame(df)
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            df = ak.stock_zh_a_hist(symbol=symbol, period="daily", start_date=start_date, end_date=end_date, adjust=adjust)
+            bars = normalize_daily_frame(df)
+            if bars:
+                return bars
+        except Exception as exc:
+            last_error = exc
+            time.sleep(0.8 * (attempt + 1))
+
+    # Sina is an independent real-market-data source and avoids making the
+    # entire sync depend on Eastmoney's availability or throttling behavior.
+    try:
+        market_symbol = f"sh{symbol}" if symbol.startswith("6") else f"sz{symbol}"
+        df = ak.stock_zh_a_daily(
+            symbol=market_symbol,
+            start_date=start_date,
+            end_date=end_date,
+            adjust=adjust,
+        )
+        if "turnover" in df.columns:
+            df = df.copy()
+            df["turnover"] = df["turnover"].map(lambda value: number(value) * 100)
+        bars = normalize_daily_frame(df)
+        if bars:
+            return bars
+    except Exception as exc:
+        last_error = exc
+
+    raise RuntimeError(f"无法获取 {symbol} 真实日线: {last_error}")
 
 
 def fetch_index_daily(start_date: str, end_date: str) -> list[dict[str, Any]]:
     attempts = [
         lambda: ak.stock_zh_index_daily_em(symbol="sh000300"),
         lambda: ak.index_zh_a_hist(symbol="000300", period="daily", start_date=start_date, end_date=end_date),
+        lambda: ak.stock_zh_index_daily(symbol="sh000300"),
+        lambda: ak.stock_zh_index_daily_tx(symbol="sh000300"),
     ]
     last_error: Exception | None = None
     for call in attempts:
@@ -182,20 +287,24 @@ def normalize_daily_frame(df: pd.DataFrame) -> list[dict[str, Any]]:
     return bars
 
 
-def fetch_intraday(symbol: str, date: str, daily_bar: dict[str, Any], period: str) -> list[dict[str, Any]]:
+def fetch_intraday(symbol: str, date: str, daily_bar: dict[str, Any], period: str) -> tuple[list[dict[str, Any]], str]:
+    points = fetch_baostock_intraday(symbol, date, period)
+    if len(points) >= 20:
+        return points, "baostock"
+
     start = f"{date} 09:30:00"
     end = f"{date} 15:00:00"
     try:
         df = ak.stock_zh_a_hist_min_em(symbol=symbol, start_date=start, end_date=end, period=period, adjust="")
         points = normalize_minute_frame(df)
         if len(points) >= 20:
-            return points
+            return points, "real"
     except Exception:
         pass
-    return synthetic_intraday(daily_bar, seed=sum(ord(ch) for ch in f"{symbol}-{date}"))
+    return synthetic_intraday(daily_bar, seed=sum(ord(ch) for ch in f"{symbol}-{date}")), "synthetic"
 
 
-def fetch_index_intraday(date: str, daily_bar: dict[str, Any], period: str) -> list[dict[str, Any]]:
+def fetch_index_intraday(date: str, daily_bar: dict[str, Any], period: str) -> tuple[list[dict[str, Any]], str]:
     start = f"{date} 09:30:00"
     end = f"{date} 15:00:00"
     for call in (
@@ -206,10 +315,13 @@ def fetch_index_intraday(date: str, daily_bar: dict[str, Any], period: str) -> l
             df = call()
             points = normalize_minute_frame(df)
             if len(points) >= 20:
-                return points
+                return points, "real"
         except Exception:
             continue
-    return synthetic_intraday(daily_bar, seed=300300 + int(date.replace("-", "")))
+    points = fetch_baostock_intraday("000300", date, period)
+    if len(points) >= 20:
+        return points, "baostock"
+    return synthetic_intraday(daily_bar, seed=300300 + int(date.replace("-", ""))), "synthetic"
 
 
 def normalize_minute_frame(df: pd.DataFrame) -> list[dict[str, Any]]:
@@ -339,8 +451,11 @@ def build_cases(args: argparse.Namespace) -> dict[str, Any]:
     index_daily = fetch_index_daily(args.start_date, args.end_date)
     if len(index_daily) < 130:
         raise RuntimeError("沪深300指数日线不足，无法生成训练题")
+    index_daily_by_date = {bar["date"]: bar for bar in index_daily}
 
     cases: list[dict[str, Any]] = []
+    real_stock_intraday = 0
+    real_index_intraday = 0
     for member in members:
         if len(cases) >= args.case_count:
             break
@@ -353,15 +468,33 @@ def build_cases(args: argparse.Namespace) -> dict[str, Any]:
 
             decision_bar = daily[decision_index]
             date = decision_bar["date"]
-            index_bar = index_daily[decision_index] if decision_index < len(index_daily) else index_daily[-1]
+            index_bar = index_daily_by_date.get(date)
+            if index_bar is None:
+                print(f"skip {member.symbol}: no HS300 index bar for {date}")
+                continue
+            stock_intraday, stock_intraday_source = fetch_intraday(member.symbol, date, decision_bar, args.minute_period)
+            index_intraday, index_intraday_source = fetch_index_intraday(date, index_bar, args.minute_period)
+            intraday_by_date = {date: stock_intraday}
+            for future_bar in daily[decision_index + 1:decision_index + 21]:
+                future_points, _ = fetch_intraday(member.symbol, future_bar["date"], future_bar, args.minute_period)
+                intraday_by_date[future_bar["date"]] = future_points
+            real_stock_intraday += stock_intraday_source != "synthetic"
+            real_index_intraday += index_intraday_source != "synthetic"
             case = {
                 "id": f"{member.symbol}-{date}-{len(cases)}",
                 "stock": fetch_basic_info(member),
                 "daily": daily,
                 "indexDaily": index_daily,
                 "decisionIndex": decision_index,
-                "fullIntraday": fetch_intraday(member.symbol, date, decision_bar, args.minute_period),
-                "indexIntraday": fetch_index_intraday(date, index_bar, args.minute_period),
+                "fullIntraday": stock_intraday,
+                "indexIntraday": index_intraday,
+                "intradayByDate": intraday_by_date,
+                "dataQuality": {
+                    "daily": "real",
+                    "indexDaily": "real",
+                    "stockIntraday": stock_intraday_source,
+                    "indexIntraday": index_intraday_source,
+                },
             }
             cases.append(case)
             print(f"case {len(cases)}/{args.case_count}: {member.symbol} {member.name} {date}")
@@ -374,8 +507,14 @@ def build_cases(args: argparse.Namespace) -> dict[str, Any]:
         raise RuntimeError("没有生成任何训练题；请检查 AKShare 网络、接口或降低筛选条件")
 
     return {
-        "source": "AKShare",
+        "source": "AKShare + BaoStock",
         "generatedAt": datetime.now().isoformat(timespec="seconds"),
+        "quality": {
+            "daily": "real",
+            "totalCases": len(cases),
+            "realStockIntradayCases": real_stock_intraday,
+            "realIndexIntradayCases": real_index_intraday,
+        },
         "cases": cases,
     }
 
@@ -395,12 +534,16 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    args = parse_args()
-    dataset = build_cases(args)
-    output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(dataset, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    print(f"wrote {output} with {len(dataset['cases'])} cases")
+    try:
+        args = parse_args()
+        dataset = build_cases(args)
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(dataset, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        print(f"wrote {output} with {len(dataset['cases'])} cases")
+    finally:
+        if BAOSTOCK_LOGGED_IN:
+            bs.logout()
 
 
 if __name__ == "__main__":

@@ -3,6 +3,10 @@ dist
 .DS_Store
 .env
 .env.local
+.venv
+__pycache__/
 *.log
+logs/
 *.tsbuildinfo
 public/data/training-cases.json
+data/

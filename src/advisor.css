@@ -1,0 +1,130 @@
+.advisor-panel {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.advisor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.advisor-head span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.advisor-head h3 {
+  margin: 3px 0 0;
+  font-size: 18px;
+}
+
+.advisor-badges {
+  display: flex;
+  gap: 5px;
+}
+
+.advisor-badges b {
+  padding: 5px 7px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, .1);
+  font-size: 11px;
+}
+
+.advisor-badges .agreement {
+  color: #8be0d6;
+  background: rgba(38, 166, 154, .14);
+}
+
+.advisor-badges .difference {
+  color: #f9d870;
+  background: rgba(247, 201, 72, .14);
+}
+
+.advisor-plan {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.advisor-evidence {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.advisor-evidence-item {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, .07);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.advisor-evidence-item b {
+  color: #dbeafe;
+}
+
+.advisor-evidence-item span,
+.advisor-panel > p {
+  color: var(--muted);
+}
+
+.advisor-evidence-item.positive {
+  border-left: 2px solid var(--up);
+}
+
+.advisor-evidence-item.negative {
+  border-left: 2px solid var(--down);
+}
+
+.advisor-evidence-item.neutral {
+  border-left: 2px solid rgba(148, 163, 184, .4);
+}
+
+.advisor-panel > p {
+  margin: 7px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.advisor-panel > p b {
+  color: #d8e3ec;
+}
+
+.reveal-btn {
+  flex: none;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(148, 163, 184, .1);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.trade-rule {
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, .08);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.trade-message {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #f9d870;
+  font-size: 11px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: .38;
+}

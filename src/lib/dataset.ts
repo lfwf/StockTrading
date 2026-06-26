@@ -3,6 +3,12 @@ import type { BaseCase } from '../types';
 export interface TrainingDataset {
   source: string;
   generatedAt: string;
+  quality?: {
+    daily: 'real';
+    totalCases: number;
+    realStockIntradayCases: number;
+    realIndexIntradayCases: number;
+  };
   cases: BaseCase[];
 }
 

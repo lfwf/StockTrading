@@ -41,6 +41,7 @@ export interface BaseCase {
   decisionIndex: number;
   fullIntraday: IntradayPoint[];
   indexIntraday: IntradayPoint[];
+  intradayByDate?: Record<string, IntradayPoint[]>;
 }
 
 export interface ScenarioView {
@@ -80,4 +81,58 @@ export interface ReviewResult {
   triggerStopLoss: boolean;
   tags: string[];
   summary: string;
+}
+
+export type AdvisorAction = 'buy' | 'observe' | 'skip';
+export type AdvisorConfidence = '低' | '中' | '高';
+
+export interface AdvisorEvidence {
+  category: string;
+  text: string;
+  tone: 'positive' | 'neutral' | 'negative';
+}
+
+export interface AdvisorResult {
+  action: AdvisorAction;
+  confidence: AdvisorConfidence;
+  score: number;
+  suggestedPosition: 0 | 25 | 50;
+  suggestedStopLossPct: number | null;
+  evidence: AdvisorEvidence[];
+  trigger: string;
+  risk: string;
+}
+
+export interface MarketCursor {
+  dayOffset: number;
+  pointIndex: number;
+}
+
+export interface PositionLot {
+  id: string;
+  quantity: number;
+  price: number;
+  date: string;
+  time: string;
+}
+
+export interface SimTrade {
+  id: string;
+  caseId: string;
+  symbol: string;
+  side: 'buy' | 'sell';
+  date: string;
+  time: string;
+  price: number;
+  quantity: number;
+  amount: number;
+  realizedPnl: number;
+}
+
+export interface PortfolioState {
+  sessionId: string;
+  initialCash: number;
+  cash: number;
+  lots: PositionLot[];
+  trades: SimTrade[];
 }

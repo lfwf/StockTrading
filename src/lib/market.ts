@@ -1,4 +1,4 @@
-import type { BaseCase, IntradayPoint, OhlcvBar, ScenarioView, StockMeta, TimeMode } from '../types';
+import type { BaseCase, IntradayPoint, MarketCursor, OhlcvBar, ScenarioView, StockMeta, TimeMode } from '../types';
 import { resampleBars } from './indicators';
 
 const STOCKS: StockMeta[] = [
@@ -199,5 +199,52 @@ export function buildScenarioView(base: BaseCase, mode: TimeMode): ScenarioView 
     decisionBar,
     buyPrice,
     visibleUntil: `${decisionBar.date} ${timeLabel(mode)}`,
+  };
+}
+
+export function initialCursorForMode(base: BaseCase, mode: TimeMode): MarketCursor {
+  const points = base.intradayByDate?.[base.daily[base.decisionIndex].date] ?? base.fullIntraday;
+  if (mode === 'open') return { dayOffset: 0, pointIndex: 0 };
+  if (mode === 'noon') {
+    let noonIndex = 0;
+    points.forEach((point, index) => {
+      if (point.time <= '11:30') noonIndex = index;
+    });
+    return { dayOffset: 0, pointIndex: Math.max(0, noonIndex) };
+  }
+  return { dayOffset: 0, pointIndex: Math.max(0, points.length - 1) };
+}
+
+export function buildTradingScenarioView(base: BaseCase, cursor: MarketCursor): ScenarioView {
+  const dailyIndex = Math.min(base.decisionIndex + cursor.dayOffset, base.daily.length - 1);
+  const decisionBar = base.daily[dailyIndex];
+  const points = base.intradayByDate?.[decisionBar.date]
+    ?? (cursor.dayOffset === 0 ? base.fullIntraday : []);
+  const pointIndex = Math.min(cursor.pointIndex, Math.max(points.length - 1, 0));
+  const visibleIntraday = points.slice(0, pointIndex + 1);
+  const isClose = pointIndex >= points.length - 1 && points.length > 0;
+  const cutoffInclusive = isClose ? dailyIndex + 1 : dailyIndex;
+  const visibleDaily = base.daily.slice(Math.max(0, cutoffInclusive - 70), cutoffInclusive);
+  const visibleIndexDaily = base.indexDaily.slice(Math.max(0, cutoffInclusive - 70), cutoffInclusive);
+  const visibleWeekly = resampleBars(base.daily.slice(0, cutoffInclusive), 5).slice(-52);
+  const visibleMonthly = resampleBars(base.daily.slice(0, cutoffInclusive), 21).slice(-36);
+  const currentPoint = visibleIntraday.at(-1);
+  const buyPrice = currentPoint?.price ?? decisionBar.open;
+  const mode: TimeMode = pointIndex === 0 ? 'open' : isClose ? 'close' : 'noon';
+
+  return {
+    base,
+    mode,
+    visibleDaily,
+    visibleWeekly,
+    visibleMonthly,
+    visibleIndexDaily,
+    visibleIntraday,
+    visibleIndexIntraday: cursor.dayOffset === 0
+      ? sliceIntraday(base.indexIntraday, mode)
+      : [],
+    decisionBar,
+    buyPrice,
+    visibleUntil: `${decisionBar.date} ${currentPoint?.time ?? '09:30'}`,
   };
 }
