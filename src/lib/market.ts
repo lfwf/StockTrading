@@ -222,13 +222,16 @@ export function buildTradingScenarioView(base: BaseCase, cursor: MarketCursor): 
     ?? (cursor.dayOffset === 0 ? base.fullIntraday : []);
   const pointIndex = Math.min(cursor.pointIndex, Math.max(points.length - 1, 0));
   const visibleIntraday = points.slice(0, pointIndex + 1);
+  const safeVisibleIntraday = visibleIntraday.length
+    ? visibleIntraday
+    : [{ time: '09:30', price: decisionBar.open, avgPrice: decisionBar.open, volume: 0 }];
   const isClose = pointIndex >= points.length - 1 && points.length > 0;
   const cutoffInclusive = isClose ? dailyIndex + 1 : dailyIndex;
   const visibleDaily = base.daily.slice(Math.max(0, cutoffInclusive - 70), cutoffInclusive);
   const visibleIndexDaily = base.indexDaily.slice(Math.max(0, cutoffInclusive - 70), cutoffInclusive);
   const visibleWeekly = resampleBars(base.daily.slice(0, cutoffInclusive), 5).slice(-52);
   const visibleMonthly = resampleBars(base.daily.slice(0, cutoffInclusive), 21).slice(-36);
-  const currentPoint = visibleIntraday.at(-1);
+  const currentPoint = safeVisibleIntraday.at(-1);
   const buyPrice = currentPoint?.price ?? decisionBar.open;
   const mode: TimeMode = pointIndex === 0 ? 'open' : isClose ? 'close' : 'noon';
 
@@ -239,7 +242,7 @@ export function buildTradingScenarioView(base: BaseCase, cursor: MarketCursor): 
     visibleWeekly,
     visibleMonthly,
     visibleIndexDaily,
-    visibleIntraday,
+    visibleIntraday: safeVisibleIntraday,
     visibleIndexIntraday: cursor.dayOffset === 0
       ? sliceIntraday(base.indexIntraday, mode)
       : [],

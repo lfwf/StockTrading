@@ -18,8 +18,9 @@ export function computeTrainerMetrics(params: {
   const currentEquity = equity(portfolio, scenario.buyPrice);
   const cost = averageCost(portfolio);
   const isBankrupt = currentEquity <= 0.01;
-  const intradayHigh = Math.max(...scenario.visibleIntraday.map((point) => point.price));
-  const intradayLow = Math.min(...scenario.visibleIntraday.map((point) => point.price));
+  const intradayPrices = scenario.visibleIntraday.map((point) => point.price);
+  const intradayHigh = intradayPrices.length ? Math.max(...intradayPrices) : scenario.buyPrice;
+  const intradayLow = intradayPrices.length ? Math.min(...intradayPrices) : scenario.buyPrice;
   const intradayVolume = scenario.visibleIntraday.reduce((sum, point) => sum + point.volume, 0);
   const openChange = change(scenario.decisionBar.preClose, scenario.buyPrice);
   const visibleHigh20 = rollingHigh(scenario.visibleDaily, Math.min(20, scenario.visibleDaily.length));

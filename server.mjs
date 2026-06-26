@@ -169,7 +169,12 @@ async function serveFile(res, filePath) {
   const info = await stat(filePath);
   if (!info.isFile()) throw new Error('not file');
   const body = await readFile(filePath);
-  res.writeHead(200, { 'Content-Type': mime[extname(filePath)] ?? 'application/octet-stream' });
+  const extension = extname(filePath);
+  const headers = {
+    'Content-Type': mime[extension] ?? 'application/octet-stream',
+    ...(extension === '.html' ? { 'Cache-Control': 'no-store' } : {}),
+  };
+  res.writeHead(200, headers);
   res.end(body);
 }
 

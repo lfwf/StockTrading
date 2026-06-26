@@ -3,13 +3,32 @@ import type { PortfolioState, PositionLot, SimTrade } from '../types';
 export const INITIAL_CASH = 100_000;
 export const BOARD_LOT = 100;
 
+function randomId(): string {
+  const random = Math.random().toString(36).slice(2, 10);
+  const time = Date.now().toString(36);
+  return `${time}-${random}`;
+}
+
 export function createPortfolio(): PortfolioState {
   return {
-    sessionId: crypto.randomUUID(),
+    sessionId: randomId(),
     initialCash: INITIAL_CASH,
     cash: INITIAL_CASH,
     lots: [],
     trades: [],
+  };
+}
+
+export function normalizePortfolio(value: unknown): PortfolioState {
+  if (!value || typeof value !== 'object') return createPortfolio();
+  const candidate = value as Partial<PortfolioState>;
+  const fallback = createPortfolio();
+  return {
+    sessionId: typeof candidate.sessionId === 'string' ? candidate.sessionId : fallback.sessionId,
+    initialCash: Number.isFinite(candidate.initialCash) ? Number(candidate.initialCash) : INITIAL_CASH,
+    cash: Number.isFinite(candidate.cash) ? Number(candidate.cash) : INITIAL_CASH,
+    lots: Array.isArray(candidate.lots) ? candidate.lots : [],
+    trades: Array.isArray(candidate.trades) ? candidate.trades : [],
   };
 }
 
@@ -47,9 +66,9 @@ export function buyShares(
   if (quantity < BOARD_LOT) return { portfolio, trade: null };
 
   const amount = quantity * price;
-  const lot: PositionLot = { id: crypto.randomUUID(), quantity, price, date, time };
+  const lot: PositionLot = { id: randomId(), quantity, price, date, time };
   const trade: SimTrade = {
-    id: crypto.randomUUID(),
+    id: randomId(),
     caseId,
     symbol,
     side: 'buy',
@@ -102,7 +121,7 @@ export function sellShares(
 
   const amount = requested * price;
   const trade: SimTrade = {
-    id: crypto.randomUUID(),
+    id: randomId(),
     caseId,
     symbol,
     side: 'sell',

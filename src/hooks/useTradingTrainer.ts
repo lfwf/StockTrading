@@ -4,7 +4,7 @@ import { buildTradingScenarioView, createBaseCase, createRandomMode, initialCurs
 import { reviewDecision, reviewSkip } from '../lib/review';
 import { pickTrainingCase } from '../lib/dataset';
 import { assessScenario } from '../lib/advisor';
-import { buyShares, createPortfolio, equity, persistTrade, positionQuantity, sellShares } from '../lib/trading';
+import { buyShares, createPortfolio, equity, normalizePortfolio, persistTrade, positionQuantity, sellShares } from '../lib/trading';
 import { computeTrainerMetrics } from '../domain/trainerMetrics';
 import {
   DEFAULT_CHECKLIST,
@@ -39,8 +39,13 @@ export function useTradingTrainer() {
   const [mistakes, setMistakes] = useState<MistakeItem[]>(() => loadMistakes());
   const [backendSummary, setBackendSummary] = useState<BackendSummary | null>(null);
   const [portfolio, setPortfolio] = useState<PortfolioState>(() => {
-    const saved = localStorage.getItem('stock-trading-portfolio');
-    return saved ? JSON.parse(saved) as PortfolioState : createPortfolio();
+    try {
+      const saved = localStorage.getItem('stock-trading-portfolio');
+      return saved ? normalizePortfolio(JSON.parse(saved)) : createPortfolio();
+    } catch {
+      localStorage.removeItem('stock-trading-portfolio');
+      return createPortfolio();
+    }
   });
 
   const scenario = useMemo(() => buildTradingScenarioView(baseCase, cursor), [baseCase, cursor]);

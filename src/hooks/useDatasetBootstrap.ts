@@ -37,8 +37,13 @@ export function useDatasetBootstrap(params: {
       }
 
       const seed = Date.now() + Math.floor(Math.random() * 100000);
-      const savedGame = localStorage.getItem('stock-trading-game');
-      const saved = savedGame ? JSON.parse(savedGame) as { caseId?: string; cursor?: MarketCursor; mode?: TimeMode } : null;
+      let saved: { caseId?: string; cursor?: MarketCursor; mode?: TimeMode } | null = null;
+      try {
+        const savedGame = localStorage.getItem('stock-trading-game');
+        saved = savedGame ? JSON.parse(savedGame) as { caseId?: string; cursor?: MarketCursor; mode?: TimeMode } : null;
+      } catch {
+        localStorage.removeItem('stock-trading-game');
+      }
       const heldCaseId = portfolio.lots.length > 0 ? portfolio.trades.at(-1)?.caseId : null;
       const picked = (heldCaseId ? dataset.cases.find((item) => item.id === heldCaseId) : null)
         ?? (saved?.caseId ? dataset.cases.find((item) => item.id === saved.caseId) : null)
@@ -54,7 +59,15 @@ export function useDatasetBootstrap(params: {
         const nextMode = saved?.mode ?? createRandomMode(seed);
         onBaseCase(picked);
         onMode(nextMode);
-        onCursor(saved?.caseId === picked.id && saved.cursor ? saved.cursor : initialCursorForMode(picked, nextMode));
+        const initialCursor = initialCursorForMode(picked, nextMode);
+        const savedCursor = saved?.caseId === picked.id && saved.cursor ? saved.cursor : null;
+        const maxDayOffset = Math.max(0, picked.daily.length - picked.decisionIndex - 1);
+        onCursor(savedCursor
+          ? {
+              dayOffset: Math.max(0, Math.min(maxDayOffset, Number(savedCursor.dayOffset) || 0)),
+              pointIndex: Math.max(0, Number(savedCursor.pointIndex) || 0),
+            }
+          : initialCursor);
         onReview(null);
         onAdvisor(null);
         onUserChoice(null);
