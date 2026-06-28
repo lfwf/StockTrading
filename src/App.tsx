@@ -62,12 +62,6 @@ export default function App() {
     advanceHour,
     advanceDay,
   } = trainer;
-  const detailsVisible = showStock && showDate;
-  const toggleDetails = () => {
-    const next = !detailsVisible;
-    setShowStock(next);
-    setShowDate(next);
-  };
 
   return (
     <div className="app-shell">
@@ -89,7 +83,8 @@ export default function App() {
           </div>
         </div>
         <TrainingPresetDropdown value={trainingPresets} onToggle={toggleTrainingPreset} mistakes={mistakes.length} />
-        <button className="status-toggle ghost-btn" onClick={toggleDetails}>{detailsVisible ? '隐藏' : '显示'}</button>
+        <button className="status-toggle ghost-btn" onClick={() => setShowStock((value) => !value)}>{showStock ? '隐藏股票' : '显示股票'}</button>
+        <button className="status-toggle ghost-btn" onClick={() => setShowDate((value) => !value)}>{showDate ? '隐藏日期' : '显示日期'}</button>
       </section>
 
       <section className="data-row phase-row">
