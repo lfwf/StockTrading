@@ -6,6 +6,7 @@ import { IntradayChart, KLineChart } from './components/Charts';
 import { DecisionChecklist } from './components/DecisionChecklist';
 import { MistakeBookPanel, TrainingPresetDropdown } from './components/TrainingPanels';
 import { ReviewPanel } from './components/ReviewPanel';
+import { TRAINING_PHASES } from './domain/trainingPhase';
 import { useTradingTrainer } from './hooks/useTradingTrainer';
 
 const POSITION_SIZES: PositionSize[] = [25, 50, 100];
@@ -28,6 +29,8 @@ export default function App() {
     tradeMessage,
     trainingPresets,
     toggleTrainingPreset,
+    trainingPhase,
+    switchTrainingPhase,
     checklist,
     setChecklist,
     mistakes,
@@ -89,8 +92,15 @@ export default function App() {
         <button className="status-toggle ghost-btn" onClick={toggleDetails}>{detailsVisible ? '隐藏' : '显示'}</button>
       </section>
 
-      <section className="data-row">
-        {dataStatus} · 匹配 {filteredCount || trainingCases.length} 题
+      <section className="data-row phase-row">
+        <span>{dataStatus} · 匹配 {filteredCount || trainingCases.length} 题</span>
+        <div className="phase-switch">
+          {TRAINING_PHASES.map((item) => (
+            <button key={item.key} className={trainingPhase === item.key ? 'mode-btn active' : 'mode-btn'} onClick={() => switchTrainingPhase(item.key)} title={item.desc}>
+              {item.title}
+            </button>
+          ))}
+        </div>
       </section>
 
       <main className="workspace">
@@ -196,16 +206,6 @@ export default function App() {
           currentEquity={currentEquity}
           backendSummary={backendSummary}
           checklist={checklist}
-        />
-      </section>
-
-      <section className="mistake-bottom">
-        <MistakeBookPanel
-          mistakes={mistakes}
-          onTrain={() => {
-            if (!trainingPresets.includes('mistakes')) toggleTrainingPreset('mistakes');
-          }}
-          onClear={() => setMistakes([])}
         />
       </section>
     </div>
