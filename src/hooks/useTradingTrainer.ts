@@ -8,7 +8,6 @@ import { buyShares, createPortfolio, equity, normalizePortfolio, persistTrade, p
 import { computeTrainerMetrics } from '../domain/trainerMetrics';
 import {
   DEFAULT_CHECKLIST,
-  caseMatchesAnyPreset,
   checklistReasons,
   createMistakeItem,
   loadMistakes,
@@ -17,6 +16,7 @@ import {
   type MistakeItem,
   type TrainingPreset,
 } from '../domain/learning';
+import { getCasesForPhase, type TrainingPhase } from '../domain/trainingPhase';
 import { useDatasetBootstrap } from './useDatasetBootstrap';
 import { useTrainerPersistence, type BackendSummary } from './useTrainerPersistence';
 
@@ -35,6 +35,7 @@ export function useTradingTrainer() {
   const [userChoice, setUserChoice] = useState<DecisionChoice | null>(null);
   const [tradeMessage, setTradeMessage] = useState('');
   const [trainingPresets, setTrainingPresets] = useState<TrainingPreset[]>(['random']);
+  const [trainingPhase, setTrainingPhase] = useState<TrainingPhase>('history');
   const [checklist, setChecklist] = useState<DecisionChecklistState>(DEFAULT_CHECKLIST);
   const [mistakes, setMistakes] = useState<MistakeItem[]>(() => loadMistakes());
   const [backendSummary, setBackendSummary] = useState<BackendSummary | null>(null);
@@ -49,7 +50,7 @@ export function useTradingTrainer() {
   });
 
   const scenario = useMemo(() => buildTradingScenarioView(baseCase, cursor), [baseCase, cursor]);
-  const metrics = useMemo(() => computeTrainerMetrics({ scenario, portfolio, trainingCases, trainingPresets, mistakes }), [scenario, portfolio, trainingCases, trainingPresets, mistakes]);
+  const metrics = useMemo(() => computeTrainerMetrics({ scenario, portfolio, trainingCases, trainingPresets, trainingPhase, mistakes }), [scenario, portfolio, trainingCases, trainingPresets, trainingPhase, mistakes]);
   const {
     currentDate,
     currentTime,
@@ -92,10 +93,19 @@ export function useTradingTrainer() {
     onBackendSummary: setBackendSummary,
   });
 
-  function getNextBaseCase(seed: number): BaseCase {
-    const filtered = trainingCases.filter((item) => caseMatchesAnyPreset(item, trainingPresets, mistakes));
-    const source = filtered.length > 0 ? filtered : trainingCases;
+  function getNextBaseCase(seed: number, phase = trainingPhase): BaseCase {
+    const filtered = getCasesForPhase({ cases: trainingCases, phase, presets: trainingPresets, mistakes });
+    const source = filtered.length > 0 ? filtered : (phase === 'current' ? getCasesForPhase({ cases: trainingCases, phase, presets: ['random'], mistakes }) : trainingCases);
     return pickTrainingCase(source, seed) ?? createBaseCase(seed);
+  }
+
+  function clearCurrentDecisionState() {
+    setReview(null);
+    setPendingReview(null);
+    setAdvisor(null);
+    setUserChoice(null);
+    setChecklist(DEFAULT_CHECKLIST);
+    setTradeMessage('');
   }
 
   function toggleTrainingPreset(preset: TrainingPreset) {
@@ -107,6 +117,19 @@ export function useTradingTrainer() {
         : [...withoutRandom, preset];
       return next.length ? next : ['random'];
     });
+  }
+
+  function switchTrainingPhase(next: TrainingPhase) {
+    if (heldQuantity > 0 || portfolio.trades.some((trade) => trade.caseId === baseCase.id)) {
+      setTradeMessage('开始交易后已锁定训练阶段，必须清仓并进入下一题后再切换。');
+      return;
+    }
+    const seed = Date.now() + Math.floor(Math.random() * 100000);
+    const nextBase = getNextBaseCase(seed, next);
+    setTrainingPhase(next);
+    setBaseCase(nextBase);
+    setCursor(initialCursorForMode(nextBase, mode));
+    clearCurrentDecisionState();
   }
 
   function resetTraining(seed = Date.now() + Math.floor(Math.random() * 100000)) {
@@ -124,12 +147,7 @@ export function useTradingTrainer() {
     setBaseCase(nextBase);
     setMode(nextMode);
     setCursor(initialCursorForMode(nextBase, nextMode));
-    setReview(null);
-    setPendingReview(null);
-    setAdvisor(null);
-    setUserChoice(null);
-    setChecklist(DEFAULT_CHECKLIST);
-    setTradeMessage('');
+    clearCurrentDecisionState();
   }
 
   function switchMode(next: TimeMode) {
@@ -248,7 +266,7 @@ export function useTradingTrainer() {
     const nextOffset = cursor.dayOffset + 1;
     const nextBar = baseCase.daily[baseCase.decisionIndex + nextOffset];
     if (!nextBar) {
-      setTradeMessage('已经到达该股票行情数据的最后交易日。');
+      setTradeMessage(trainingPhase === 'current' ? '当前最新阶段没有未来交易日，只能在最新盘面做当下演练。' : '已经到达该股票行情数据的最后交易日。');
       return;
     }
 
@@ -297,6 +315,8 @@ export function useTradingTrainer() {
     tradeMessage,
     trainingPresets,
     toggleTrainingPreset,
+    trainingPhase,
+    switchTrainingPhase,
     checklist,
     setChecklist,
     mistakes,
