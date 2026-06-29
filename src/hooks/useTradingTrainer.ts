@@ -22,6 +22,7 @@ import { useTrainerPersistence, type BackendSummary } from './useTrainerPersiste
 
 export function useTradingTrainer() {
   const [trainingCases, setTrainingCases] = useState<BaseCase[]>([]);
+  const [currentCases, setCurrentCases] = useState<BaseCase[]>([]);
   const [dataStatus, setDataStatus] = useState('正在检查 AKShare 数据');
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [baseCase, setBaseCase] = useState(() => createBaseCase());
@@ -75,6 +76,7 @@ export function useTradingTrainer() {
   useDatasetBootstrap({
     portfolio,
     onTrainingCases: setTrainingCases,
+    onCurrentCases: setCurrentCases,
     onDataStatus: setDataStatus,
     onBaseCase: setBaseCase,
     onMode: setMode,
@@ -97,8 +99,12 @@ export function useTradingTrainer() {
   });
 
   function getNextBaseCase(seed: number, phase = trainingPhase): BaseCase {
-    const filtered = getCasesForPhase({ cases: trainingCases, phase, presets: trainingPresets, mistakes });
-    const source = filtered.length > 0 ? filtered : (phase === 'current' ? getCasesForPhase({ cases: trainingCases, phase, presets: ['random'], mistakes }) : trainingCases);
+    if (phase === 'current') {
+      const source = currentCases.length ? currentCases : getCasesForPhase({ cases: trainingCases, phase, presets: ['random'], mistakes });
+      return pickTrainingCase(source, seed) ?? createBaseCase(seed);
+    }
+    const filtered = getCasesForPhase({ cases: trainingCases, phase: 'history', presets: trainingPresets, mistakes });
+    const source = filtered.length > 0 ? filtered : trainingCases;
     return pickTrainingCase(source, seed) ?? createBaseCase(seed);
   }
 
@@ -129,9 +135,11 @@ export function useTradingTrainer() {
     }
     const seed = Date.now() + Math.floor(Math.random() * 100000);
     const nextBase = getNextBaseCase(seed, next);
+    const nextMode: TimeMode = next === 'current' ? 'open' : mode;
     setTrainingPhase(next);
     setBaseCase(nextBase);
-    setCursor(initialCursorForMode(nextBase, mode));
+    setMode(nextMode);
+    setCursor(initialCursorForMode(nextBase, nextMode));
     clearCurrentDecisionState();
   }
 
@@ -146,7 +154,7 @@ export function useTradingTrainer() {
     }
 
     const nextBase = getNextBaseCase(seed);
-    const nextMode = mode;
+    const nextMode: TimeMode = trainingPhase === 'current' ? 'open' : mode;
     setBaseCase(nextBase);
     setMode(nextMode);
     setCursor(initialCursorForMode(nextBase, nextMode));
@@ -356,6 +364,7 @@ export function useTradingTrainer() {
     indexChange,
     filteredCount,
     trainingCases,
+    currentCases,
     resetTraining,
     switchMode,
     buy,
