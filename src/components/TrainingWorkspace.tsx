@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { PositionSize, TimeMode } from '../types';
 import type { useTradingTrainer } from '../hooks/useTradingTrainer';
 import { getModeLabel } from '../lib/market';
@@ -11,8 +12,18 @@ import { TRAINING_PHASES } from '../domain/trainingPhase';
 
 const POSITION_SIZES: PositionSize[] = [25, 50, 100];
 const TIME_MODES: TimeMode[] = ['open', 'noon', 'close'];
+type MobileChartTab = 'intraday' | 'daily' | 'weekly' | 'monthly' | 'index';
+
+const MOBILE_CHART_TABS: Array<{ key: MobileChartTab; label: string }> = [
+  { key: 'intraday', label: '分时' },
+  { key: 'daily', label: '日线' },
+  { key: 'weekly', label: '周线' },
+  { key: 'monthly', label: '月线' },
+  { key: 'index', label: '大盘' },
+];
 
 export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useTradingTrainer> }) {
+  const [mobileChartTab, setMobileChartTab] = useState<MobileChartTab>('intraday');
   const {
     scenario,
     dataStatus,
@@ -61,6 +72,51 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
     advanceDay,
   } = trainer;
 
+  function renderMobileChart() {
+    if (mobileChartTab === 'intraday') {
+      return (
+        <>
+          <ChartHeader title="当天分时" subtitle={scenario.mode === 'open' ? '只显示开盘点' : scenario.mode === 'close' ? '显示全天分时' : '显示当前时点前分时'} />
+          <IntradayChart points={scenario.visibleIntraday} preClose={scenario.decisionBar.preClose} />
+        </>
+      );
+    }
+    if (mobileChartTab === 'daily') {
+      return (
+        <>
+          <ChartHeader title="日线" subtitle={scenario.mode === 'close' ? '包含当前交易日' : '只显示到昨日'} />
+          <KLineChart bars={scenario.visibleDaily} showDates={showDate} />
+        </>
+      );
+    }
+    if (mobileChartTab === 'weekly') {
+      return (
+        <>
+          <ChartHeader title="周线" subtitle="确认大周期方向" />
+          <KLineChart bars={scenario.visibleWeekly} showDates={showDate} />
+        </>
+      );
+    }
+    if (mobileChartTab === 'monthly') {
+      return (
+        <>
+          <ChartHeader title="月线" subtitle="观察长期位置" />
+          <KLineChart bars={scenario.visibleMonthly} showDates={showDate} />
+        </>
+      );
+    }
+    return (
+      <>
+        <ChartHeader title="市场环境 · 沪深300" subtitle="用于判断个股是否顺应大盘" />
+        <KLineChart bars={scenario.visibleIndexDaily} showDates={showDate} />
+        <div className="mobile-market-metrics">
+          <Metric label="沪深300" value={pct(indexChange)} valueClass={indexChange >= 0 ? 'up-text' : 'down-text'} />
+          <Metric label="个股变化" value={pct(openChange)} valueClass={openChange >= 0 ? 'up-text' : 'down-text'} />
+        </div>
+      </>
+    );
+  }
+
   return (
     <div className="training-workspace">
       <section className="status-bar">
@@ -96,8 +152,19 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
         </div>
       </section>
 
+      <section className="mobile-chart-card card chart-card">
+        <div className="mobile-chart-tabs">
+          {MOBILE_CHART_TABS.map((item) => (
+            <button key={item.key} className={mobileChartTab === item.key ? 'active' : ''} onClick={() => setMobileChartTab(item.key)}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <div className="mobile-chart-body">{renderMobileChart()}</div>
+      </section>
+
       <main className="workspace">
-        <section className="chart-grid">
+        <section className="chart-grid desktop-chart-grid">
           <div className="card chart-card large-chart">
             <ChartHeader title="历史日K · 主决策图" subtitle={scenario.mode === 'close' ? '收盘场景包含当日完整K线' : '只显示到昨日，避免泄露当天结果'} />
             <KLineChart bars={scenario.visibleDaily} showDates={showDate} />
@@ -116,7 +183,7 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
         </section>
 
         <aside className="side-panel">
-          <div className="card chart-card">
+          <div className="card chart-card desktop-intraday-card">
             <ChartHeader title="当天分时" subtitle={scenario.mode === 'open' ? '只显示开盘点' : scenario.mode === 'close' ? '显示全天分时' : '显示当前时点前分时'} />
             <IntradayChart points={scenario.visibleIntraday} preClose={scenario.decisionBar.preClose} />
           </div>
@@ -174,7 +241,7 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
       </main>
 
       <section className="lower-grid">
-        <div className="card market-card">
+        <div className="card market-card desktop-market-card">
           <ChartHeader title="市场环境 · 沪深300" subtitle="用于判断个股是否顺应大盘" />
           <div className="market-content">
             <KLineChart bars={scenario.visibleIndexDaily} compact showDates={showDate} />
@@ -200,6 +267,14 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
           backendSummary={backendSummary}
           checklist={checklist}
         />
+      </section>
+
+      <section className="mobile-action-bar">
+        <button className="buy-btn" onClick={buy} disabled={isBankrupt}>买入</button>
+        <button className="skip-btn" onClick={sell}>卖出</button>
+        <button className="skip-btn" onClick={skip} disabled={heldQuantity > 0}>放弃</button>
+        <button className="neutral-btn" onClick={advanceHour} disabled={scenario.mode === 'close'}>1小时</button>
+        <button className="neutral-btn" onClick={advanceDay}>下一日</button>
       </section>
     </div>
   );
