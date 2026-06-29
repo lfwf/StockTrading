@@ -6,6 +6,7 @@ import { loadTrainingDataset, pickTrainingCase } from '../lib/dataset';
 export function useDatasetBootstrap(params: {
   portfolio: PortfolioState;
   onTrainingCases: (cases: BaseCase[]) => void;
+  onCurrentCases: (cases: BaseCase[]) => void;
   onDataStatus: (status: string) => void;
   onBaseCase: (item: BaseCase) => void;
   onMode: (mode: TimeMode) => void;
@@ -18,6 +19,7 @@ export function useDatasetBootstrap(params: {
   const {
     portfolio,
     onTrainingCases,
+    onCurrentCases,
     onDataStatus,
     onBaseCase,
     onMode,
@@ -39,6 +41,9 @@ export function useDatasetBootstrap(params: {
         return;
       }
 
+      const historyCases = dataset.historyCases?.length ? dataset.historyCases : dataset.cases;
+      const currentCases = dataset.currentCases ?? [];
+      const allCases = [...historyCases, ...currentCases];
       const seed = Date.now() + Math.floor(Math.random() * 100000);
       let saved: { caseId?: string; cursor?: MarketCursor; mode?: TimeMode } | null = null;
       try {
@@ -48,15 +53,17 @@ export function useDatasetBootstrap(params: {
         localStorage.removeItem('stock-trading-game');
       }
       const heldCaseId = portfolio.lots.length > 0 ? portfolio.trades.at(-1)?.caseId : null;
-      const picked = (heldCaseId ? dataset.cases.find((item) => item.id === heldCaseId) : null)
-        ?? (saved?.caseId ? dataset.cases.find((item) => item.id === saved.caseId) : null)
-        ?? pickTrainingCase(dataset.cases, seed);
+      const picked = (heldCaseId ? allCases.find((item) => item.id === heldCaseId) : null)
+        ?? (saved?.caseId ? allCases.find((item) => item.id === saved.caseId) : null)
+        ?? pickTrainingCase(historyCases, seed);
 
-      onTrainingCases(dataset.cases);
+      onTrainingCases(historyCases);
+      onCurrentCases(currentCases);
       const minuteStatus = dataset.quality
         ? `真实分钟线 ${dataset.quality.realStockIntradayCases}/${dataset.quality.totalCases}`
         : '分钟线质量未标记';
-      onDataStatus(`${dataset.source} · 真实日线 · ${minuteStatus} · ${dataset.cases.length}题 · ${dataset.generatedAt.slice(0, 10)}`);
+      const currentStatus = currentCases.length ? `当前盘面 ${currentCases.length}题` : '当前盘面未生成';
+      onDataStatus(`${dataset.source} · 真实日线 · ${minuteStatus} · 历史${historyCases.length}题 · ${currentStatus} · ${dataset.generatedAt.slice(0, 10)}`);
 
       if (picked) {
         const nextMode = saved?.mode ?? createRandomMode(seed);
