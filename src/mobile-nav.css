@@ -101,7 +101,7 @@
     border-radius: 8px;
   }
 
-  .product-nav > button:not(.mobile-nav-head button) {
+  .product-nav > button {
     width: 100%;
     padding: 12px 13px;
     text-align: left;
