@@ -11,6 +11,7 @@ export type BackendSummary = {
 };
 
 export function useTrainerPersistence(params: {
+  enabled: boolean;
   portfolio: PortfolioState;
   currentEquity: number;
   mistakes: MistakeItem[];
@@ -19,9 +20,10 @@ export function useTrainerPersistence(params: {
   mode: TimeMode;
   onBackendSummary: (summary: BackendSummary | null) => void;
 }) {
-  const { portfolio, currentEquity, mistakes, baseCaseId, cursor, mode, onBackendSummary } = params;
+  const { enabled, portfolio, currentEquity, mistakes, baseCaseId, cursor, mode, onBackendSummary } = params;
 
   useEffect(() => {
+    if (!enabled) return;
     localStorage.setItem('stock-trading-portfolio', JSON.stringify(portfolio));
     fetch('/api/sessions', {
       method: 'POST',
@@ -33,20 +35,23 @@ export function useTrainerPersistence(params: {
         equity: currentEquity,
       }),
     }).catch(() => undefined);
-  }, [portfolio, currentEquity]);
+  }, [enabled, portfolio, currentEquity]);
 
   useEffect(() => {
+    if (!enabled) return;
     localStorage.setItem('stock-trading-mistakes', JSON.stringify(mistakes.slice(0, 80)));
-  }, [mistakes]);
+  }, [enabled, mistakes]);
 
   useEffect(() => {
+    if (!enabled) return;
     fetch(`/api/analysis?sessionId=${encodeURIComponent(portfolio.sessionId)}`)
       .then((response) => response.ok ? response.json() : null)
       .then((data) => onBackendSummary(data?.summary ?? null))
       .catch(() => undefined);
-  }, [portfolio.sessionId, portfolio.trades.length, onBackendSummary]);
+  }, [enabled, portfolio.sessionId, portfolio.trades.length, onBackendSummary]);
 
   useEffect(() => {
+    if (!enabled) return;
     localStorage.setItem('stock-trading-game', JSON.stringify({ caseId: baseCaseId, cursor, mode }));
-  }, [baseCaseId, cursor, mode]);
+  }, [enabled, baseCaseId, cursor, mode]);
 }
