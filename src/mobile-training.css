@@ -1,0 +1,166 @@
+.mobile-chart-card,
+.mobile-action-bar {
+  display: none;
+}
+
+.mobile-market-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+@media (max-width: 760px) {
+  .product-shell {
+    padding-bottom: 92px;
+  }
+
+  .training-workspace {
+    display: grid;
+    gap: 10px;
+  }
+
+  .mobile-chart-card {
+    display: block;
+    position: sticky;
+    top: 0;
+    z-index: 8;
+    padding: 10px;
+    background: rgba(12, 23, 34, 0.96);
+    backdrop-filter: blur(12px);
+  }
+
+  .mobile-chart-tabs {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 5px;
+    margin-bottom: 8px;
+  }
+
+  .mobile-chart-tabs button {
+    padding: 7px 0;
+    color: #cbd5e1;
+    background: rgba(148, 163, 184, 0.1);
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 9px;
+    font-size: 12px;
+  }
+
+  .mobile-chart-tabs button.active {
+    color: white;
+    background: rgba(88, 166, 255, 0.2);
+    border-color: rgba(88, 166, 255, 0.45);
+  }
+
+  .mobile-chart-body .chart-header {
+    margin-bottom: 4px;
+  }
+
+  .mobile-chart-body .chart-header h2 {
+    font-size: 13px;
+  }
+
+  .mobile-chart-body .chart-header span {
+    font-size: 10px;
+  }
+
+  .mobile-chart-body .chart {
+    max-height: 310px;
+  }
+
+  .desktop-chart-grid,
+  .desktop-intraday-card,
+  .desktop-market-card {
+    display: none !important;
+  }
+
+  .workspace {
+    display: block;
+  }
+
+  .side-panel {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .quote-card .metric-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .quote-card .metric:nth-child(n + 7) {
+    display: none;
+  }
+
+  .decision-card {
+    padding-bottom: 12px;
+  }
+
+  .decision-card .decision-actions {
+    display: none;
+  }
+
+  .lower-grid {
+    display: block;
+    margin-top: 0;
+  }
+
+  .review-card {
+    margin-top: 0;
+  }
+
+  .mobile-action-bar {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    z-index: 40;
+    display: grid;
+    grid-template-columns: 1.1fr 1.1fr 0.9fr 0.9fr 0.9fr;
+    gap: 6px;
+    padding: 8px;
+    background: rgba(7, 16, 24, 0.96);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 16px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(16px);
+  }
+
+  .mobile-action-bar button {
+    min-height: 42px;
+    padding: 8px 4px;
+    border-radius: 10px;
+    font-size: 12px;
+  }
+
+  .status-bar {
+    gap: 6px;
+  }
+
+  .status-mode,
+  .status-dropdown,
+  .status-toggle {
+    grid-column: span 2;
+  }
+
+  .phase-row {
+    margin-bottom: 0;
+  }
+}
+
+@media (max-width: 390px) {
+  .mobile-action-bar {
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+    left: 6px;
+    right: 6px;
+  }
+
+  .mobile-action-bar button {
+    font-size: 11px;
+  }
+
+  .mobile-chart-tabs button {
+    font-size: 11px;
+  }
+}
