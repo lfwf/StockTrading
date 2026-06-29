@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Sync HS300 market data into PostgreSQL.
+"""Sync A-share index-universe market data into PostgreSQL.
 
 The job keeps a reusable local market database:
 
-    - current HS300 members
+    - current index-universe members
     - adjusted daily bars from listing date when available
     - BaoStock 5-minute bars from the free historical minute coverage window
 
@@ -35,8 +35,8 @@ if str(ROOT) not in sys.path:
 from scripts.sync_akshare import (  # noqa: E402
     BAOSTOCK_LOGGED_IN,
     baostock_code,
-    fetch_hs300_members,
     fetch_stock_daily,
+    fetch_universe_members,
     number,
 )
 
@@ -336,7 +336,7 @@ def parse_symbols(value: str) -> set[str]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Sync HS300 daily and 5-minute bars into PostgreSQL")
+    parser = argparse.ArgumentParser(description="Sync A-share index universe daily and 5-minute bars into PostgreSQL")
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL", ""), help="PostgreSQL connection string")
     parser.add_argument("--db-name", default=os.environ.get("PGDATABASE", "stock_trading"), help="PostgreSQL database")
     parser.add_argument("--db-host", default=os.environ.get("PGHOST", "/var/run/postgresql"), help="PostgreSQL host/socket")
@@ -345,13 +345,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--daily-start", default="19900101", help="daily backfill start, YYYYMMDD")
     parser.add_argument("--minute-start", default="20200101", help="BaoStock minute backfill start, YYYYMMDD")
     parser.add_argument("--end-date", default=datetime.now().strftime(DATE_FMT), help="sync end date, YYYYMMDD")
-    parser.add_argument("--member-limit", type=int, default=500, help="HS300 member fetch limit")
+    parser.add_argument("--universe", default="csi800", choices=["hs300", "csi500", "csi800"], help="stock universe to sync")
+    parser.add_argument("--member-limit", type=int, default=800, help="member fetch limit")
     parser.add_argument("--minute-frequency", default="5", choices=["5", "15", "30", "60"], help="BaoStock period")
     parser.add_argument("--sleep", type=float, default=0.15, help="sleep between symbols")
     parser.add_argument("--symbols", default="", help="optional comma-separated symbol allowlist")
     parser.add_argument("--daily-only", action="store_true", help="skip minute sync")
     parser.add_argument("--minute-only", action="store_true", help="skip daily sync")
-    parser.add_argument("--members-only", action="store_true", help="refresh HS300 members only")
+    parser.add_argument("--members-only", action="store_true", help="refresh universe members only")
+    parser.add_argument("--missing-only", action="store_true", help="sync only symbols missing requested data")
     return parser.parse_args()
 
 
@@ -371,17 +373,28 @@ def main() -> None:
         minute_logged_in = False
 
         try:
-            members = fetch_hs300_members(args.member_limit)
+            members = fetch_universe_members(args.universe, args.member_limit)
             if allowed_symbols:
                 members = [member for member in members if member.symbol in allowed_symbols]
             members_total = len(members)
             upsert_members(conn, members, replace_active=not bool(allowed_symbols))
-            print(f"[{now_text()}] members={members_total} db=postgresql/{args.db_name}", flush=True)
+            print(f"[{now_text()}] universe={args.universe} members={members_total} db=postgresql/{args.db_name}", flush=True)
 
             if args.members_only:
                 finish_run(conn, run_id, "ok", members_total, 0, 0, errors)
                 print(f"[{now_text()}] finished status=ok members={members_total} daily=0 minute=0 errors=0", flush=True)
                 return
+
+            if args.missing_only:
+                missing_members = []
+                for member in members:
+                    needs_daily = not args.minute_only and max_date(conn, "daily_bars", member.symbol) is None
+                    needs_minute = not args.daily_only and max_date(conn, "minute_bars", member.symbol) is None
+                    if needs_daily or needs_minute:
+                        missing_members.append(member)
+                members = missing_members
+                members_total = len(members)
+                print(f"[{now_text()}] missing_only members={members_total}", flush=True)
 
             if not args.daily_only:
                 minute_logged_in = ensure_baostock_login()

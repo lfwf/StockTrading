@@ -133,6 +133,32 @@ React 前端盲盘训练
 
 注意：BaoStock 免费接口支持 5/15/30/60 分钟线，不支持 1 分钟线。实测 5 分钟数据从 2020 年开始有覆盖，但不同股票的实际覆盖可能不同。如果历史日期取不到真实分钟线，脚本会用当天 OHLC 生成分时兜底曲线，并在数据质量字段中标记为 `synthetic`。
 
+## 全量行情数据库与定时同步
+
+后端行情库写入 PostgreSQL `stock_trading` 数据库，用于保存指数股票池成分股、前复权日线和 BaoStock 5 分钟线。
+
+默认股票池是 `csi800`，即沪深300 + 中证500。
+
+手动执行一次：
+
+```bash
+scripts/run_market_sync.sh
+```
+
+指定股票池：
+
+```bash
+scripts/run_market_sync.sh --universe hs300
+scripts/run_market_sync.sh --universe csi500
+scripts/run_market_sync.sh --universe csi800
+```
+
+增量规则：
+
+- 没有历史数据的股票：日线从 `19900101` 开始补齐；5 分钟线从 `20200101` 开始补齐。
+- 已有历史数据的股票：从数据库里最后一个日期重新拉取并覆盖，保证最近一个交易日可以被修正。
+- BaoStock 免费分钟线支持 5/15/30/60 分钟，不支持 1 分钟。
+
 ## 后续上线建议
 
 上线前还需要继续补强：

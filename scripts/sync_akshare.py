@@ -82,32 +82,64 @@ def infer_market(symbol: str) -> str:
     return "沪市" if symbol.startswith("6") else "深市"
 
 
-def fetch_hs300_members(limit: int) -> list[Member]:
+def fetch_index_members(index_symbol: str, label: str, limit: int, fallback: list[dict[str, str]] | None = None) -> list[Member]:
     candidates: list[list[Member]] = []
 
     # Use multiple free AKShare constituent sources. Some upstream endpoints can
-    # occasionally return an incomplete HS300 list, so we normalize each result
-    # and choose the most complete one instead of trusting the first response.
+    # occasionally return an incomplete list, so we normalize each result and
+    # choose the most complete one instead of trusting the first response.
     for call in (
-        lambda: ak.index_stock_cons(symbol="000300"),
-        lambda: ak.index_stock_cons_weight_csindex(symbol="000300"),
-        lambda: ak.index_stock_cons_sina(symbol="000300"),
+        lambda: ak.index_stock_cons(symbol=index_symbol),
+        lambda: ak.index_stock_cons_weight_csindex(symbol=index_symbol),
+        lambda: ak.index_stock_cons_sina(symbol=index_symbol),
     ):
         try:
             frame = call_with_timeout(call, seconds=12)
             if isinstance(frame, pd.DataFrame) and not frame.empty:
-                members = normalize_member_frame(frame)
+                members = normalize_member_frame(frame, default_industry=label)
                 if members:
                     candidates.append(members)
         except Exception:
             continue
 
     if not candidates:
-        return [Member(**item) for item in FALLBACK_MEMBERS[:limit]]
+        return [Member(**item) for item in (fallback or [])[:limit]]
 
     candidates.sort(key=len, reverse=True)
     members = candidates[0]
-    return members[:limit] if members else [Member(**item) for item in FALLBACK_MEMBERS[:limit]]
+    return members[:limit]
+
+
+def merge_members(groups: list[list[Member]], limit: int) -> list[Member]:
+    merged: list[Member] = []
+    seen: set[str] = set()
+    for group in groups:
+        for member in group:
+            if member.symbol in seen:
+                continue
+            seen.add(member.symbol)
+            merged.append(member)
+            if len(merged) >= limit:
+                return merged
+    return merged
+
+
+def fetch_hs300_members(limit: int) -> list[Member]:
+    return fetch_index_members("000300", "沪深300", limit, FALLBACK_MEMBERS)
+
+
+def fetch_csi500_members(limit: int) -> list[Member]:
+    return fetch_index_members("000905", "中证500", limit)
+
+
+def fetch_universe_members(universe: str, limit: int) -> list[Member]:
+    if universe == "hs300":
+        return fetch_hs300_members(limit)
+    if universe == "csi500":
+        return fetch_csi500_members(limit)
+    if universe == "csi800":
+        return merge_members([fetch_hs300_members(300), fetch_csi500_members(500)], limit)
+    raise ValueError(f"unsupported universe: {universe}")
 
 
 def call_with_timeout(call: Any, seconds: int) -> Any:
@@ -123,7 +155,7 @@ def call_with_timeout(call: Any, seconds: int) -> Any:
         signal.signal(signal.SIGALRM, previous_handler)
 
 
-def normalize_member_frame(df: pd.DataFrame) -> list[Member]:
+def normalize_member_frame(df: pd.DataFrame, default_industry: str = "沪深300") -> list[Member]:
     frame = df.copy()
     members: list[Member] = []
     seen: set[str] = set()
@@ -133,7 +165,7 @@ def normalize_member_frame(df: pd.DataFrame) -> list[Member]:
             continue
         seen.add(symbol)
         name = str(first_existing(row, ["品种名称", "成分券名称", "证券简称", "名称", "stock_name", "name"], symbol)).strip()
-        industry = str(first_existing(row, ["行业", "所属行业", "中证行业", "industry"], "沪深300")).strip() or "沪深300"
+        industry = str(first_existing(row, ["行业", "所属行业", "中证行业", "industry"], default_industry)).strip() or default_industry
         members.append(Member(symbol=symbol, name=name, industry=industry, market=infer_market(symbol)))
     return members
 
@@ -202,7 +234,10 @@ def fetch_stock_daily(symbol: str, start_date: str, end_date: str, adjust: str) 
     last_error: Exception | None = None
     for attempt in range(2):
         try:
-            df = ak.stock_zh_a_hist(symbol=symbol, period="daily", start_date=start_date, end_date=end_date, adjust=adjust)
+            df = call_with_timeout(
+                lambda: ak.stock_zh_a_hist(symbol=symbol, period="daily", start_date=start_date, end_date=end_date, adjust=adjust),
+                seconds=20,
+            )
             bars = normalize_daily_frame(df)
             if bars:
                 return bars
@@ -214,11 +249,14 @@ def fetch_stock_daily(symbol: str, start_date: str, end_date: str, adjust: str) 
     # entire sync depend on Eastmoney's availability or throttling behavior.
     try:
         market_symbol = f"sh{symbol}" if symbol.startswith("6") else f"sz{symbol}"
-        df = ak.stock_zh_a_daily(
-            symbol=market_symbol,
-            start_date=start_date,
-            end_date=end_date,
-            adjust=adjust,
+        df = call_with_timeout(
+            lambda: ak.stock_zh_a_daily(
+                symbol=market_symbol,
+                start_date=start_date,
+                end_date=end_date,
+                adjust=adjust,
+            ),
+            seconds=20,
         )
         if "turnover" in df.columns:
             df = df.copy()
