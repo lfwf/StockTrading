@@ -155,6 +155,12 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
     };
   }, []);
 
+  function toggleRevealInfo() {
+    const shouldShow = !(showStock && showDate);
+    setShowStock(shouldShow);
+    setShowDate(shouldShow);
+  }
+
   function runMobileAction(action: () => void | Promise<void>) {
     syncMobileActionBarViewport();
     setActionBarHidden(false);
@@ -247,8 +253,7 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
             </div>
           </div>
           <TrainingPresetDropdown value={trainingPresets} onToggle={toggleTrainingPreset} mistakes={mistakes.length} />
-          <button className="status-toggle ghost-btn" onClick={() => setShowStock((value) => !value)}>{showStock ? '隐藏股票' : '显示股票'}</button>
-          <button className="status-toggle ghost-btn" onClick={() => setShowDate((value) => !value)}>{showDate ? '隐藏日期' : '显示日期'}</button>
+          <button className="status-toggle ghost-btn" onClick={toggleRevealInfo}>显示/隐藏</button>
         </section>
 
         <section className="mobile-chart-card card chart-card">
