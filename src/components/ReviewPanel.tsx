@@ -30,15 +30,15 @@ export function ReviewPanel({
   if (!review) {
     return (
       <div className="card review-card empty-review">
-        <h2>交易记录与判断</h2>
+        <h2>交易记录</h2>
         <div className="advisor-plan">
           <Metric label="累计收益率" value={pct(change(portfolio.initialCash, currentEquity))} valueClass={currentEquity >= portfolio.initialCash ? 'up-text' : 'down-text'} />
           <Metric label="已实现盈亏" value={`${(backendSummary?.realized_pnl ?? 0) >= 0 ? '+' : ''}${(backendSummary?.realized_pnl ?? 0).toFixed(2)}`} valueClass={(backendSummary?.realized_pnl ?? 0) >= 0 ? 'up-text' : 'down-text'} />
-          <Metric label="后台成交记录" value={`${backendSummary?.trade_count ?? portfolio.trades.length} 笔`} />
+          <Metric label="成交记录" value={`${backendSummary?.trade_count ?? portfolio.trades.length} 笔`} />
         </div>
         {advisor && <AdvisorPanel advisor={advisor} userChoice={userChoice} />}
         <ChecklistSnapshot checklist={checklist} />
-        <p>买入后系统只展示当时判断，不会提前揭晓未来。请通过“下一小时”或“下一交易日”推进行情。</p>
+        <p>模拟买入后，先继续推进行情；清仓或放弃后，再查看这道题的结果。</p>
       </div>
     );
   }
@@ -48,7 +48,7 @@ export function ReviewPanel({
       <div className="review-head">
         <div>
           <h2>结果复盘</h2>
-          <p>{getModeLabel(mode)} · 买入价参考 {review.entryPrice.toFixed(2)}</p>
+          <p>{getModeLabel(mode)} · 参考价 {review.entryPrice.toFixed(2)}</p>
         </div>
         <button className="primary-btn small" onClick={onNext}>下一题</button>
       </div>
@@ -93,25 +93,25 @@ function LearningCards({ tags }: { tags: string[] }) {
 }
 
 function AdvisorPanel({ advisor, userChoice }: { advisor: AdvisorResult; userChoice: DecisionChoice | null }) {
-  const actionLabel = advisor.action === 'buy' ? '考虑买入' : advisor.action === 'observe' ? '继续观察' : '放弃';
+  const actionLabel = advisor.action === 'buy' ? '条件较好' : advisor.action === 'observe' ? '可以再看' : '风险偏高';
   const agrees = userChoice === 'buy' ? advisor.action === 'buy' : userChoice === 'skip' ? advisor.action === 'skip' : false;
 
   return (
     <section className="advisor-panel">
       <div className="advisor-head">
         <div>
-          <span>规则系统判断 · 仅使用当时可见数据</span>
+          <span>参考判断 · 只使用当时数据</span>
           <h3>{actionLabel}</h3>
         </div>
         <div className="advisor-badges">
-          <b>置信度 {advisor.confidence}</b>
+          <b>把握度 {advisor.confidence}</b>
           <b className={agrees ? 'agreement' : 'difference'}>{agrees ? '与你一致' : '与你不同'}</b>
         </div>
       </div>
       <div className="advisor-plan">
-        <Metric label="建议仓位" value={advisor.suggestedPosition ? `${advisor.suggestedPosition}%` : '暂不建仓'} />
-        <Metric label="建议止损" value={advisor.suggestedStopLossPct ? `-${advisor.suggestedStopLossPct}%` : '--'} />
-        <Metric label="综合评分" value={`${advisor.score > 0 ? '+' : ''}${advisor.score}`} valueClass={advisor.score > 0 ? 'up-text' : advisor.score < 0 ? 'down-text' : ''} />
+        <Metric label="模拟仓位" value={advisor.suggestedPosition ? `${advisor.suggestedPosition}%` : '先不买'} />
+        <Metric label="参考止损" value={advisor.suggestedStopLossPct ? `-${advisor.suggestedStopLossPct}%` : '--'} />
+        <Metric label="评分" value={`${advisor.score > 0 ? '+' : ''}${advisor.score}`} valueClass={advisor.score > 0 ? 'up-text' : advisor.score < 0 ? 'down-text' : ''} />
       </div>
       <div className="advisor-evidence">
         {advisor.evidence.map((item) => (
@@ -121,8 +121,8 @@ function AdvisorPanel({ advisor, userChoice }: { advisor: AdvisorResult; userCho
           </div>
         ))}
       </div>
-      <p><b>触发条件：</b>{advisor.trigger}</p>
-      <p><b>主要风险：</b>{advisor.risk}</p>
+      <p><b>主要依据：</b>{advisor.trigger}</p>
+      <p><b>需要留意：</b>{advisor.risk}</p>
     </section>
   );
 }
