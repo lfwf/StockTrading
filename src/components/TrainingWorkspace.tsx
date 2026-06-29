@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { PositionSize, TimeMode } from '../types';
 import type { useTradingTrainer } from '../hooks/useTradingTrainer';
 import { getModeLabel } from '../lib/market';
@@ -23,7 +24,6 @@ const MOBILE_CHART_TABS: Array<{ key: MobileChartTab; label: string }> = [
 
 export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useTradingTrainer> }) {
   const [mobileChartTab, setMobileChartTab] = useState<MobileChartTab>('intraday');
-  const [actionBarHidden, setActionBarHidden] = useState(false);
   const {
     scenario,
     showStock,
@@ -96,43 +96,6 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
     };
   }, []);
 
-  useEffect(() => {
-    let showTimer: number | undefined;
-
-    function scheduleShow(delay = 240) {
-      if (showTimer) window.clearTimeout(showTimer);
-      showTimer = window.setTimeout(() => setActionBarHidden(false), delay);
-    }
-
-    function hideWhileMoving() {
-      if (window.innerWidth > 760) return;
-      setActionBarHidden(true);
-      scheduleShow();
-    }
-
-    function showAfterTouchEnd() {
-      if (window.innerWidth > 760) return;
-      scheduleShow(120);
-    }
-
-    window.addEventListener('scroll', hideWhileMoving, { passive: true });
-    window.addEventListener('touchmove', hideWhileMoving, { passive: true });
-    window.addEventListener('wheel', hideWhileMoving, { passive: true });
-    window.addEventListener('touchend', showAfterTouchEnd, { passive: true });
-    window.visualViewport?.addEventListener('scroll', hideWhileMoving);
-    window.visualViewport?.addEventListener('resize', hideWhileMoving);
-
-    return () => {
-      if (showTimer) window.clearTimeout(showTimer);
-      window.removeEventListener('scroll', hideWhileMoving);
-      window.removeEventListener('touchmove', hideWhileMoving);
-      window.removeEventListener('wheel', hideWhileMoving);
-      window.removeEventListener('touchend', showAfterTouchEnd);
-      window.visualViewport?.removeEventListener('scroll', hideWhileMoving);
-      window.visualViewport?.removeEventListener('resize', hideWhileMoving);
-    };
-  }, []);
-
   function renderMobileChart() {
     if (mobileChartTab === 'intraday') {
       return (
@@ -178,7 +141,18 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
     );
   }
 
+  const mobileActionBar = (
+    <section className="mobile-action-bar">
+      <button className="buy-btn" onClick={buy} disabled={isBankrupt}>买入</button>
+      <button className="skip-btn" onClick={sell}>卖出</button>
+      <button className="skip-btn" onClick={skip} disabled={heldQuantity > 0}>放弃</button>
+      <button className="neutral-btn" onClick={advanceHour} disabled={scenario.mode === 'close'}>1小时</button>
+      <button className="neutral-btn" onClick={advanceDay}>下一日</button>
+    </section>
+  );
+
   return (
+    <>
     <div className="training-workspace">
       <section className="status-bar">
         <StatusItem label="当前时间" value={showDate ? scenario.visibleUntil : currentTime} highlight />
@@ -319,13 +293,8 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
         />
       </section>
 
-      <section className={actionBarHidden ? 'mobile-action-bar hide-while-scroll' : 'mobile-action-bar'}>
-        <button className="buy-btn" onClick={buy} disabled={isBankrupt}>买入</button>
-        <button className="skip-btn" onClick={sell}>卖出</button>
-        <button className="skip-btn" onClick={skip} disabled={heldQuantity > 0}>放弃</button>
-        <button className="neutral-btn" onClick={advanceHour} disabled={scenario.mode === 'close'}>1小时</button>
-        <button className="neutral-btn" onClick={advanceDay}>下一日</button>
-      </section>
     </div>
+    {typeof document !== 'undefined' ? createPortal(mobileActionBar, document.body) : null}
+    </>
   );
 }

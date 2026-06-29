@@ -143,13 +143,14 @@
 
   .mobile-action-bar {
     position: fixed;
-    left: 8px;
-    right: 8px;
+    left: max(8px, env(safe-area-inset-left));
+    right: max(8px, env(safe-area-inset-right));
     bottom: var(--mobile-action-bottom, calc(10px + env(safe-area-inset-bottom, 0px)));
     z-index: 1000;
-    display: grid;
+    display: grid !important;
     grid-template-columns: 1.1fr 1.1fr 0.9fr 0.9fr 0.9fr;
     gap: 6px;
+    max-width: calc(100vw - 16px);
     padding: 8px;
     background: rgba(7, 16, 24, 0.98);
     border: 1px solid rgba(148, 163, 184, 0.24);
@@ -158,18 +159,7 @@
     opacity: 1;
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    transform: translate3d(0, 0, 0);
-    -webkit-transform: translate3d(0, 0, 0);
-    transition: opacity 0.16s ease, transform 0.16s ease;
-    will-change: transform, bottom, opacity;
-    contain: layout paint;
-  }
-
-  .mobile-action-bar.hide-while-scroll {
-    opacity: 0;
-    pointer-events: none;
-    transform: translate3d(0, calc(100% + 18px), 0);
-    -webkit-transform: translate3d(0, calc(100% + 18px), 0);
+    visibility: visible;
   }
 
   .mobile-action-bar button {
@@ -178,6 +168,12 @@
     border-radius: 10px;
     font-size: 12px;
     touch-action: manipulation;
+    white-space: nowrap;
+  }
+
+  .mobile-action-bar button:disabled {
+    opacity: 0.55;
+    visibility: visible;
   }
 }
 

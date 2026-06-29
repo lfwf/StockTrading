@@ -5,6 +5,11 @@
 }
 
 @media (max-width: 760px) {
+  body.nav-open {
+    overflow: hidden;
+    touch-action: none;
+  }
+
   .product-shell {
     padding-top: 6px;
   }
@@ -64,16 +69,20 @@
     bottom: 0;
     z-index: 70;
     width: min(78vw, 300px);
+    height: 100dvh;
+    max-height: 100dvh;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 14px;
+    padding: max(14px, env(safe-area-inset-top)) 14px max(18px, env(safe-area-inset-bottom));
     background: rgba(7, 16, 24, 0.98);
     border-left: 1px solid rgba(148, 163, 184, 0.18);
     box-shadow: -20px 0 50px rgba(0, 0, 0, 0.45);
     transform: translateX(104%);
     transition: transform 0.18s ease;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .product-nav.open {

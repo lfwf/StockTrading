@@ -117,4 +117,29 @@
   .status-dropdown {
     min-height: 42px;
   }
+
+  .status-dropdown[open] {
+    grid-column: 1 / -1;
+  }
+
+  .status-dropdown[open] summary {
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(148, 163, 184, .14);
+  }
+
+  .status-dropdown .dropdown-menu {
+    position: static;
+    width: 100%;
+    margin-top: 8px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .status-dropdown .dropdown-option {
+    min-height: 38px;
+    padding: 8px 2px;
+  }
 }

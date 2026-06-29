@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { TrainingWorkspace } from './components/TrainingWorkspace';
 import { AccountPage, HomePage, KnowledgePage, MistakeProfilePage, type ProductPage } from './components/ProductPages';
 import { useLocalAccount } from './hooks/useLocalAccount';
@@ -21,6 +21,11 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   const activeItem = NAV_ITEMS.find((item) => item.key === activePage) ?? NAV_ITEMS[0];
 
+  useEffect(() => {
+    document.body.classList.toggle('nav-open', navOpen);
+    return () => document.body.classList.remove('nav-open');
+  }, [navOpen]);
+
   function navigate(page: ProductPage, phase?: TrainingPhase) {
     if (phase) trainer.switchTrainingPhase(phase);
     setActivePage(page);
@@ -42,7 +47,7 @@ export default function App() {
           <span>盲盘训练</span>
           <b>{activeItem.label}</b>
         </button>
-        <button className="mobile-menu-button" onClick={() => setNavOpen(true)} aria-label="打开菜单">菜单</button>
+        <button className="mobile-menu-button" onClick={() => setNavOpen(true)} aria-expanded={navOpen} aria-label="打开菜单">菜单</button>
         <nav className={navOpen ? 'product-nav open' : 'product-nav'}>
           <div className="mobile-nav-head">
             <b>功能菜单</b>
