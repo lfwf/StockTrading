@@ -13,6 +13,7 @@ export function useDatasetBootstrap(params: {
   onReview: (review: ReviewResult | null) => void;
   onAdvisor: (advisor: null) => void;
   onUserChoice: (choice: null) => void;
+  onReady: () => void;
 }) {
   const {
     portfolio,
@@ -24,6 +25,7 @@ export function useDatasetBootstrap(params: {
     onReview,
     onAdvisor,
     onUserChoice,
+    onReady,
   } = params;
 
   useEffect(() => {
@@ -33,6 +35,7 @@ export function useDatasetBootstrap(params: {
       if (cancelled) return;
       if (!dataset) {
         onDataStatus('模拟数据 · 运行 AKShare 脚本后自动切换');
+        onReady();
         return;
       }
 
@@ -72,6 +75,9 @@ export function useDatasetBootstrap(params: {
         onAdvisor(null);
         onUserChoice(null);
       }
+      onReady();
+    }).catch(() => {
+      if (!cancelled) onReady();
     });
 
     return () => {
