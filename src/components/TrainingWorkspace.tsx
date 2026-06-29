@@ -23,6 +23,7 @@ const MOBILE_CHART_TABS: Array<{ key: MobileChartTab; label: string }> = [
 
 export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useTradingTrainer> }) {
   const [mobileChartTab, setMobileChartTab] = useState<MobileChartTab>('intraday');
+  const [actionBarHidden, setActionBarHidden] = useState(false);
   const {
     scenario,
     showStock,
@@ -92,6 +93,43 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
       window.removeEventListener('orientationchange', syncMobileViewport);
       window.visualViewport?.removeEventListener('resize', syncMobileViewport);
       window.visualViewport?.removeEventListener('scroll', syncMobileViewport);
+    };
+  }, []);
+
+  useEffect(() => {
+    let showTimer: number | undefined;
+
+    function scheduleShow(delay = 240) {
+      if (showTimer) window.clearTimeout(showTimer);
+      showTimer = window.setTimeout(() => setActionBarHidden(false), delay);
+    }
+
+    function hideWhileMoving() {
+      if (window.innerWidth > 760) return;
+      setActionBarHidden(true);
+      scheduleShow();
+    }
+
+    function showAfterTouchEnd() {
+      if (window.innerWidth > 760) return;
+      scheduleShow(120);
+    }
+
+    window.addEventListener('scroll', hideWhileMoving, { passive: true });
+    window.addEventListener('touchmove', hideWhileMoving, { passive: true });
+    window.addEventListener('wheel', hideWhileMoving, { passive: true });
+    window.addEventListener('touchend', showAfterTouchEnd, { passive: true });
+    window.visualViewport?.addEventListener('scroll', hideWhileMoving);
+    window.visualViewport?.addEventListener('resize', hideWhileMoving);
+
+    return () => {
+      if (showTimer) window.clearTimeout(showTimer);
+      window.removeEventListener('scroll', hideWhileMoving);
+      window.removeEventListener('touchmove', hideWhileMoving);
+      window.removeEventListener('wheel', hideWhileMoving);
+      window.removeEventListener('touchend', showAfterTouchEnd);
+      window.visualViewport?.removeEventListener('scroll', hideWhileMoving);
+      window.visualViewport?.removeEventListener('resize', hideWhileMoving);
     };
   }, []);
 
@@ -281,7 +319,7 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
         />
       </section>
 
-      <section className="mobile-action-bar">
+      <section className={actionBarHidden ? 'mobile-action-bar hide-while-scroll' : 'mobile-action-bar'}>
         <button className="buy-btn" onClick={buy} disabled={isBankrupt}>买入</button>
         <button className="skip-btn" onClick={sell}>卖出</button>
         <button className="skip-btn" onClick={skip} disabled={heldQuantity > 0}>放弃</button>
