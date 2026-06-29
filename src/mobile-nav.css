@@ -1,0 +1,120 @@
+.mobile-menu-button,
+.mobile-nav-head,
+.nav-backdrop {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .product-shell {
+    padding-top: 6px;
+  }
+
+  .product-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+    padding: 8px;
+    border-radius: 12px;
+  }
+
+  .brand-button {
+    min-width: 0;
+    padding: 7px 10px;
+  }
+
+  .brand-button span {
+    font-size: 11px;
+  }
+
+  .brand-button b {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 14px;
+  }
+
+  .mobile-menu-button {
+    display: block;
+    padding: 8px 12px;
+    color: #dbeafe;
+    background: rgba(88, 166, 255, 0.16);
+    border: 1px solid rgba(88, 166, 255, 0.34);
+    border-radius: 10px;
+    font: inherit;
+    font-size: 13px;
+  }
+
+  .account-pill {
+    grid-column: auto;
+    justify-self: auto;
+    max-width: 88px;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .product-nav {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 70;
+    width: min(78vw, 300px);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px;
+    background: rgba(7, 16, 24, 0.98);
+    border-left: 1px solid rgba(148, 163, 184, 0.18);
+    box-shadow: -20px 0 50px rgba(0, 0, 0, 0.45);
+    transform: translateX(104%);
+    transition: transform 0.18s ease;
+    overflow-y: auto;
+  }
+
+  .product-nav.open {
+    transform: translateX(0);
+  }
+
+  .mobile-nav-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  }
+
+  .mobile-nav-head b {
+    font-size: 15px;
+  }
+
+  .mobile-nav-head button {
+    padding: 6px 9px;
+    color: #cbd5e1;
+    background: rgba(148, 163, 184, 0.1);
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 8px;
+  }
+
+  .product-nav > button:not(.mobile-nav-head button) {
+    width: 100%;
+    padding: 12px 13px;
+    text-align: left;
+    border-radius: 12px;
+    font-size: 15px;
+  }
+
+  .nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: rgba(0, 0, 0, 0.42);
+    border: 0;
+  }
+}
