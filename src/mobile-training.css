@@ -155,12 +155,21 @@
     border: 1px solid rgba(148, 163, 184, 0.24);
     border-radius: 16px;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.38);
+    opacity: 1;
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    transform: translateZ(0);
-    -webkit-transform: translateZ(0);
-    will-change: transform, bottom;
+    transform: translate3d(0, 0, 0);
+    -webkit-transform: translate3d(0, 0, 0);
+    transition: opacity 0.16s ease, transform 0.16s ease;
+    will-change: transform, bottom, opacity;
     contain: layout paint;
+  }
+
+  .mobile-action-bar.hide-while-scroll {
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(0, calc(100% + 18px), 0);
+    -webkit-transform: translate3d(0, calc(100% + 18px), 0);
   }
 
   .mobile-action-bar button {
