@@ -22,6 +22,20 @@ const MOBILE_CHART_TABS: Array<{ key: MobileChartTab; label: string }> = [
   { key: 'index', label: '大盘' },
 ];
 
+function syncMobileActionBarViewport() {
+  const fallbackBottom = 10;
+  const viewport = window.visualViewport;
+  if (!viewport) {
+    document.documentElement.style.setProperty('--mobile-action-bottom', `calc(${fallbackBottom}px + env(safe-area-inset-bottom, 0px))`);
+    return;
+  }
+
+  const browserInset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+  const bottom = Math.max(fallbackBottom, Math.ceil(browserInset + fallbackBottom));
+  document.documentElement.style.setProperty('--mobile-action-bottom', `${bottom}px`);
+  document.documentElement.style.setProperty('--mobile-viewport-height', `${Math.round(viewport.height)}px`);
+}
+
 export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useTradingTrainer> }) {
   const [mobileChartTab, setMobileChartTab] = useState<MobileChartTab>('intraday');
   const [actionBarHidden, setActionBarHidden] = useState(false);
@@ -50,6 +64,7 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
     currentEquity,
     cost,
     isBankrupt,
+    isBootstrapping,
     intradayHigh,
     intradayLow,
     intradayVolume,
@@ -69,40 +84,40 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
   } = trainer;
 
   useEffect(() => {
-    function syncMobileViewport() {
-      const fallbackBottom = 10;
-      const viewport = window.visualViewport;
-      if (!viewport) {
-        document.documentElement.style.setProperty('--mobile-action-bottom', `calc(${fallbackBottom}px + env(safe-area-inset-bottom, 0px))`);
-        return;
-      }
-
-      const browserInset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
-      const bottom = Math.max(fallbackBottom, Math.ceil(browserInset + fallbackBottom));
-      document.documentElement.style.setProperty('--mobile-action-bottom', `${bottom}px`);
-      document.documentElement.style.setProperty('--mobile-viewport-height', `${Math.round(viewport.height)}px`);
-    }
-
-    syncMobileViewport();
-    window.addEventListener('resize', syncMobileViewport);
-    window.addEventListener('orientationchange', syncMobileViewport);
-    window.visualViewport?.addEventListener('resize', syncMobileViewport);
-    window.visualViewport?.addEventListener('scroll', syncMobileViewport);
+    syncMobileActionBarViewport();
+    window.addEventListener('resize', syncMobileActionBarViewport);
+    window.addEventListener('orientationchange', syncMobileActionBarViewport);
+    window.visualViewport?.addEventListener('resize', syncMobileActionBarViewport);
+    window.visualViewport?.addEventListener('scroll', syncMobileActionBarViewport);
 
     return () => {
-      window.removeEventListener('resize', syncMobileViewport);
-      window.removeEventListener('orientationchange', syncMobileViewport);
-      window.visualViewport?.removeEventListener('resize', syncMobileViewport);
-      window.visualViewport?.removeEventListener('scroll', syncMobileViewport);
+      window.removeEventListener('resize', syncMobileActionBarViewport);
+      window.removeEventListener('orientationchange', syncMobileActionBarViewport);
+      window.visualViewport?.removeEventListener('resize', syncMobileActionBarViewport);
+      window.visualViewport?.removeEventListener('scroll', syncMobileActionBarViewport);
     };
   }, []);
 
   useEffect(() => {
+    if (window.innerWidth > 760) return;
+    syncMobileActionBarViewport();
+    setActionBarHidden(false);
+    const timer = window.setTimeout(() => {
+      syncMobileActionBarViewport();
+      setActionBarHidden(false);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [scenario.base.id, scenario.mode, currentTime, Boolean(review), heldQuantity]);
+
+  useEffect(() => {
     let showTimer: number | undefined;
 
-    function scheduleShow(delay = 260) {
+    function scheduleShow(delay = 220) {
       if (showTimer) window.clearTimeout(showTimer);
-      showTimer = window.setTimeout(() => setActionBarHidden(false), delay);
+      showTimer = window.setTimeout(() => {
+        syncMobileActionBarViewport();
+        setActionBarHidden(false);
+      }, delay);
     }
 
     function hideWhileScrolling() {
@@ -113,7 +128,7 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
 
     function showAfterTouchEnd() {
       if (window.innerWidth > 760) return;
-      scheduleShow(120);
+      scheduleShow(80);
     }
 
     window.addEventListener('scroll', hideWhileScrolling, { passive: true });
@@ -121,7 +136,6 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
     window.addEventListener('wheel', hideWhileScrolling, { passive: true });
     window.addEventListener('touchend', showAfterTouchEnd, { passive: true });
     window.visualViewport?.addEventListener('scroll', hideWhileScrolling);
-    window.visualViewport?.addEventListener('resize', hideWhileScrolling);
 
     return () => {
       if (showTimer) window.clearTimeout(showTimer);
@@ -130,9 +144,19 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
       window.removeEventListener('wheel', hideWhileScrolling);
       window.removeEventListener('touchend', showAfterTouchEnd);
       window.visualViewport?.removeEventListener('scroll', hideWhileScrolling);
-      window.visualViewport?.removeEventListener('resize', hideWhileScrolling);
     };
   }, []);
+
+  function runMobileAction(action: () => void | Promise<void>) {
+    syncMobileActionBarViewport();
+    setActionBarHidden(false);
+    const result = action();
+    window.setTimeout(() => {
+      syncMobileActionBarViewport();
+      setActionBarHidden(false);
+    }, 120);
+    return result;
+  }
 
   function renderMobileChart() {
     if (mobileChartTab === 'intraday') {
@@ -181,11 +205,11 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
 
   const mobileActionBar = (
     <section className={actionBarHidden ? 'mobile-action-bar hide-while-scroll' : 'mobile-action-bar'}>
-      <button className="buy-btn" onClick={buy} disabled={isBankrupt}>买入</button>
-      <button className="skip-btn" onClick={sell}>卖出</button>
-      <button className="skip-btn" onClick={skip} disabled={heldQuantity > 0}>放弃</button>
-      <button className="neutral-btn" onClick={advanceHour} disabled={scenario.mode === 'close'}>1小时</button>
-      <button className="neutral-btn" onClick={advanceDay}>下一日</button>
+      <button className="buy-btn" onClick={() => runMobileAction(buy)} disabled={isBankrupt || isBootstrapping}>买入</button>
+      <button className="skip-btn" onClick={() => runMobileAction(sell)} disabled={isBootstrapping}>卖出</button>
+      <button className="skip-btn" onClick={() => runMobileAction(skip)} disabled={heldQuantity > 0 || isBootstrapping}>放弃</button>
+      <button className="neutral-btn" onClick={() => runMobileAction(advanceHour)} disabled={scenario.mode === 'close' || isBootstrapping}>1小时</button>
+      <button className="neutral-btn" onClick={() => runMobileAction(advanceDay)} disabled={isBootstrapping}>下一日</button>
     </section>
   );
 
@@ -290,12 +314,12 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
                 <div className="trade-rule">100股整数手 · 当日买入次日可卖</div>
               </div>
               <div className="decision-actions">
-                <button className="buy-btn" onClick={buy} disabled={isBankrupt}>模拟买入 {positionSize}%现金</button>
-                <button className="skip-btn" onClick={sell}>模拟卖出 {positionSize}%可卖</button>
-                <button className="neutral-btn" onClick={advanceHour} disabled={scenario.mode === 'close'}>下一小时</button>
-                <button className="neutral-btn" onClick={advanceDay}>下一交易日</button>
-                <button className="skip-btn" onClick={skip} disabled={heldQuantity > 0}>放弃本题</button>
-                <button className="primary-btn" onClick={() => resetTraining()} disabled={heldQuantity > 0 || isBankrupt}>下一题</button>
+                <button className="buy-btn" onClick={buy} disabled={isBankrupt || isBootstrapping}>模拟买入 {positionSize}%现金</button>
+                <button className="skip-btn" onClick={sell} disabled={isBootstrapping}>模拟卖出 {positionSize}%可卖</button>
+                <button className="neutral-btn" onClick={advanceHour} disabled={scenario.mode === 'close' || isBootstrapping}>下一小时</button>
+                <button className="neutral-btn" onClick={advanceDay} disabled={isBootstrapping}>下一交易日</button>
+                <button className="skip-btn" onClick={skip} disabled={heldQuantity > 0 || isBootstrapping}>放弃本题</button>
+                <button className="primary-btn" onClick={() => resetTraining()} disabled={heldQuantity > 0 || isBankrupt || isBootstrapping}>下一题</button>
               </div>
               {tradeMessage && <p className="trade-message">{tradeMessage}</p>}
             </div>
