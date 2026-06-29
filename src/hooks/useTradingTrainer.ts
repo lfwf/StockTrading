@@ -23,6 +23,7 @@ import { useTrainerPersistence, type BackendSummary } from './useTrainerPersiste
 export function useTradingTrainer() {
   const [trainingCases, setTrainingCases] = useState<BaseCase[]>([]);
   const [dataStatus, setDataStatus] = useState('正在检查 AKShare 数据');
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [baseCase, setBaseCase] = useState(() => createBaseCase());
   const [mode, setMode] = useState<TimeMode>(() => createRandomMode());
   const [cursor, setCursor] = useState<MarketCursor>(() => ({ dayOffset: 0, pointIndex: 0 }));
@@ -81,9 +82,11 @@ export function useTradingTrainer() {
     onReview: setReview,
     onAdvisor: (value) => setAdvisor(value),
     onUserChoice: (value) => setUserChoice(value),
+    onReady: () => setIsBootstrapping(false),
   });
 
   useTrainerPersistence({
+    enabled: !isBootstrapping,
     portfolio,
     currentEquity,
     mistakes,
@@ -171,6 +174,10 @@ export function useTradingTrainer() {
   }
 
   function buy() {
+    if (isBootstrapping) {
+      setTradeMessage('正在恢复上次训练，请稍后再操作。');
+      return;
+    }
     if (isBankrupt) {
       setTradeMessage('总资产已经归零，无法继续买入。');
       return;
@@ -203,6 +210,10 @@ export function useTradingTrainer() {
   }
 
   function skip() {
+    if (isBootstrapping) {
+      setTradeMessage('正在恢复上次训练，请稍后再操作。');
+      return;
+    }
     if (heldQuantity > 0) {
       setTradeMessage('当前仍有持仓，不能放弃本题。');
       return;
@@ -216,6 +227,10 @@ export function useTradingTrainer() {
   }
 
   function sell() {
+    if (isBootstrapping) {
+      setTradeMessage('正在恢复上次训练，请稍后再操作。');
+      return;
+    }
     const result = sellShares(portfolio, positionSize, scenario.buyPrice, currentDate, currentTime, baseCase.id, baseCase.stock.symbol);
     if (!result.trade) {
       setTradeMessage(heldQuantity > 0 ? '当前持仓受 T+1 限制，今天买入的股票要到下一交易日才能卖。' : '当前没有可卖持仓。');
@@ -303,6 +318,7 @@ export function useTradingTrainer() {
   return {
     scenario,
     dataStatus,
+    isBootstrapping,
     showStock,
     setShowStock,
     showDate,
