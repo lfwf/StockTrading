@@ -14,27 +14,27 @@ export function HomePage({ onNavigate, trainer, account }: { onNavigate: Product
   return (
     <section className="product-home">
       <div className="hero-panel card">
-        <p className="eyebrow">A股盲盘训练 · 非投资建议</p>
-        <h1>测出你最容易亏钱的买入习惯</h1>
-        <p>用历史行情和当前盘面做模拟训练。系统不推荐股票，不预测涨跌，只记录你的判断、复盘你的冲动、沉淀错题和个人画像。</p>
+        <p className="eyebrow">A股模拟训练 · 非投资建议</p>
+        <h1>练一练买入前的判断</h1>
+        <p>这里不推荐股票，也不预测涨跌。你可以用历史行情或最新盘面做模拟操作，记录当时的判断，再看后面的结果和复盘。</p>
         <div className="hero-cta">
-          <button className="primary-btn" onClick={() => onNavigate('history', 'history')}>开始20题交易习惯测试</button>
-          <button className="ghost-btn" onClick={() => onNavigate('knowledge')}>先看基础知识</button>
+          <button className="primary-btn" onClick={() => onNavigate('history', 'history')}>开始一组盲盘训练</button>
+          <button className="ghost-btn" onClick={() => onNavigate('knowledge')}>先看使用说明</button>
         </div>
-        <p className="risk-note">本产品仅用于模拟训练和投资者教育，不构成证券投资建议。不要依据训练结果进行真实交易。</p>
+        <p className="risk-note">仅用于模拟训练和学习复盘，不构成证券投资建议。请不要把训练结果当作真实交易依据。</p>
       </div>
 
       <div className="home-stats">
-        <StatCard label="当前身份" value={account ? account.name : '游客模式'} desc={account ? '训练记录保存在本机账号下' : '可先体验，登录后保存长期画像'} />
-        <StatCard label="模拟资产" value={`¥${trainer.currentEquity.toFixed(2)}`} desc={`累计收益率 ${equityReturn}`} />
-        <StatCard label="错题数量" value={`${trainer.mistakes.length}题`} desc="追高、回撤、放弃后大涨会自动收集" />
+        <StatCard label="当前身份" value={account ? account.name : '游客模式'} desc={account ? '当前记录保存在本机账号下' : '可以先体验，后续再登录保存记录'} />
+        <StatCard label="模拟资产" value={`¥${trainer.currentEquity.toFixed(2)}`} desc={`累计变化 ${equityReturn}`} />
+        <StatCard label="错题数量" value={`${trainer.mistakes.length}题`} desc="系统会记录回撤较大或明显错过的样本" />
       </div>
 
       <div className="module-grid">
-        <ModuleCard title="历史盲盘训练" desc="随机历史阶段，隐藏未来数据，适合真正训练买入纪律。" action="进入训练" onClick={() => onNavigate('history', 'history')} />
-        <ModuleCard title="当前盘面训练" desc="使用最新交易日数据做当下盘面演练，强调风险识别，不做荐股。" action="进入演练" onClick={() => onNavigate('current', 'current')} />
-        <ModuleCard title="基础知识了解" desc="围绕买点、分时陷阱、仓位止损和交易心理建立训练框架。" action="开始学习" onClick={() => onNavigate('knowledge')} />
-        <ModuleCard title="错题本与画像" desc="查看自己最常见的错误类型，进入针对性训练。" action="查看画像" onClick={() => onNavigate('mistakes')} />
+        <ModuleCard title="历史盲盘训练" desc="随机抽一段历史行情，只看当时能看到的数据，适合练买入前的判断。" action="进入训练" onClick={() => onNavigate('history', 'history')} />
+        <ModuleCard title="当前盘面训练" desc="使用最新交易日数据做一次盘面练习。这里只做模拟，不提供买卖建议。" action="进入练习" onClick={() => onNavigate('current', 'current')} />
+        <ModuleCard title="基础知识" desc="先了解界面、买点、分时、仓位和常见心理问题，再开始做题。" action="查看说明" onClick={() => onNavigate('knowledge')} />
+        <ModuleCard title="错题与记录" desc="查看最近做错或判断偏差较大的样本，后面可以反复练。" action="查看记录" onClick={() => onNavigate('mistakes')} />
       </div>
     </section>
   );
@@ -64,23 +64,23 @@ export function KnowledgePage({ onNavigate }: { onNavigate: ProductAction }) {
   const sections = [
     {
       title: '看懂训练界面',
-      items: ['日K看位置，周K/月K看大周期', '当天分时只用于判断当时资金状态', '开盘和午间不会展示当天完整日K'],
+      items: ['日K看价格位置，周K和月K看更大的方向', '分时图只看当前时点前的走势', '开盘和午间场景不会展示当天完整日K'],
     },
     {
       title: '买点判断',
-      items: ['突破不等于追高，要看是否放量和是否接近阶段高位', '回踩要确认趋势仍在，不是跌了就便宜', '低吸要有止损位置，否则容易变成死扛'],
+      items: ['突破要看位置和成交量，不是过了前高就一定好', '回踩要看趋势有没有坏掉，不能只看价格跌了', '低吸前要想好止损，不然很容易变成硬扛'],
     },
     {
       title: '分时陷阱',
-      items: ['上午急拉后回落，常见风险是承接不足', '尾盘拉升不一定代表次日溢价', '分时站不回均价线，追入风险会提高'],
+      items: ['上午急拉后回落，说明承接可能不够', '尾盘拉升不一定代表第二天会高开', '价格站不回分时均价线时，追入要更谨慎'],
     },
     {
       title: '仓位与止损',
-      items: ['买入前先想错了怎么办', '不确定时先降低模拟仓位', 'T+1环境下，当天买入无法当天卖出'],
+      items: ['模拟买入前先想：如果判断错了怎么办', '看不清的时候，仓位应该小一点', 'A股是T+1，当天买入不能当天卖出'],
     },
     {
       title: '交易心理',
-      items: ['怕错过会提高追高概率', '幻想反弹会让低吸变成抄底', '亏损后补仓前必须重新判断趋势是否破坏'],
+      items: ['怕错过的时候，最容易追高', '觉得“跌多了该反弹”，不等于真的有买点', '亏损后想补仓，先重新判断趋势有没有破坏'],
     },
   ];
 
@@ -89,10 +89,10 @@ export function KnowledgePage({ onNavigate }: { onNavigate: ProductAction }) {
       <div className="page-head">
         <div>
           <p className="eyebrow">基础知识</p>
-          <h1>不是百科，而是训练前的判断框架</h1>
-          <p>每个知识点都对应训练里的一个常见错误。先建立框架，再去做盲盘题。</p>
+          <h1>先熟悉几个常见判断</h1>
+          <p>这些内容主要帮助你看懂训练界面，以及理解复盘里出现的提示。看完后再去做几组盲盘题会更顺手。</p>
         </div>
-        <button className="primary-btn" onClick={() => onNavigate('history', 'history')}>学完去盲盘训练</button>
+        <button className="primary-btn" onClick={() => onNavigate('history', 'history')}>去历史盲盘训练</button>
       </div>
       <div className="knowledge-grid">
         {sections.map((section) => (
@@ -124,9 +124,9 @@ export function MistakeProfilePage({ trainer, onNavigate }: { trainer: ReturnTyp
     <section className="content-page">
       <div className="page-head">
         <div>
-          <p className="eyebrow">错题本与个人画像</p>
-          <h1>看见你重复犯错的地方</h1>
-          <p>这里不是评价你会不会炒股，而是把冲动买入、过早买入、错过机会等行为沉淀成训练路径。</p>
+          <p className="eyebrow">错题与记录</p>
+          <h1>看看最近哪些判断偏差比较大</h1>
+          <p>这里会保存回撤较大、亏损偏多，或者放弃后明显上涨的样本。数量多了以后，可以看出自己更容易在哪些场景出问题。</p>
         </div>
         <button className="primary-btn" onClick={() => onNavigate('history', 'history')}>继续训练</button>
       </div>
@@ -134,17 +134,17 @@ export function MistakeProfilePage({ trainer, onNavigate }: { trainer: ReturnTyp
       <div className="profile-grid">
         <StatCard label="模拟买入" value={`${buyTrades}笔`} desc="只统计本机训练记录" />
         <StatCard label="模拟卖出" value={`${sellTrades}笔`} desc={`已实现盈亏 ${realized >= 0 ? '+' : ''}${realized.toFixed(2)}`} />
-        <StatCard label="错题数量" value={`${trainer.mistakes.length}题`} desc="可进入错题重练" />
+        <StatCard label="错题数量" value={`${trainer.mistakes.length}题`} desc="可作为后续复练样本" />
       </div>
 
       <div className="card profile-card">
-        <h2>高频错误标签</h2>
+        <h2>出现较多的标签</h2>
         {rankedTags.length ? (
           <div className="tag-rank-list">
             {rankedTags.map(([tag, count]) => <span key={tag}>{tag} · {count}</span>)}
           </div>
         ) : (
-          <p className="muted-text">还没有足够错题。完成训练后，系统会自动生成你的错误画像。</p>
+          <p className="muted-text">目前错题还不多。多做几组训练后，这里会显示出现频率较高的问题。</p>
         )}
       </div>
 
@@ -191,7 +191,7 @@ export function AccountPage({
           <p className="eyebrow">账号</p>
           <h1>{account.name}</h1>
           <p>{account.email}</p>
-          <p className="muted-text">当前是本地账号 MVP。后续接入正式后端后，训练记录、错题本和画像可以跨设备保存。</p>
+          <p className="muted-text">当前账号只保存在本机浏览器里。后面接入正式登录后，训练记录、错题和统计可以跟账号同步。</p>
           <button className="ghost-btn" onClick={onSignOut}>退出登录</button>
         </div>
       </section>
@@ -202,14 +202,14 @@ export function AccountPage({
     <section className="content-page account-page">
       <div className="card account-card">
         <p className="eyebrow">登录 / 注册</p>
-        <h1>先用本地账号保存训练记录</h1>
-        <p>上线 MVP 先保留轻量登录入口。后续再替换为邮箱验证码、手机号或微信登录。</p>
+        <h1>先用本地账号试一下</h1>
+        <p>现在先做了一个轻量版本，用来保存本机训练记录。正式上线时可以再接邮箱验证码、手机号或微信登录。</p>
         <label>昵称</label>
-        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：追高纠偏训练者" />
+        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：练习用户" />
         <label>邮箱</label>
         <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" />
         <button className="primary-btn" onClick={() => onSignIn(email, name)}>创建本地账号</button>
-        <p className="risk-note">当前账号仅保存在本机浏览器，不会上传隐私数据。</p>
+        <p className="risk-note">当前账号信息只保存在本机浏览器。</p>
       </div>
     </section>
   );
