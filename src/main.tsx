@@ -6,6 +6,7 @@ import './advisor.css';
 import './layout-overrides.css';
 import './training-phase.css';
 import './product-shell.css';
+import './mobile-nav.css';
 import './mobile-training.css';
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
