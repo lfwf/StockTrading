@@ -23,7 +23,11 @@ export default function App() {
 
   useEffect(() => {
     document.body.classList.toggle('nav-open', navOpen);
-    return () => document.body.classList.remove('nav-open');
+    document.body.classList.toggle('mobile-menu-open', navOpen);
+    return () => {
+      document.body.classList.remove('nav-open');
+      document.body.classList.remove('mobile-menu-open');
+    };
   }, [navOpen]);
 
   function navigate(page: ProductPage, phase?: TrainingPhase) {
