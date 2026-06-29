@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { PositionSize, TimeMode } from '../types';
 import type { useTradingTrainer } from '../hooks/useTradingTrainer';
 import { getModeLabel } from '../lib/market';
@@ -65,6 +65,35 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
     advanceHour,
     advanceDay,
   } = trainer;
+
+  useEffect(() => {
+    function syncMobileViewport() {
+      const fallbackBottom = 10;
+      const viewport = window.visualViewport;
+      if (!viewport) {
+        document.documentElement.style.setProperty('--mobile-action-bottom', `calc(${fallbackBottom}px + env(safe-area-inset-bottom, 0px))`);
+        return;
+      }
+
+      const browserInset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      const bottom = Math.max(fallbackBottom, Math.ceil(browserInset + fallbackBottom));
+      document.documentElement.style.setProperty('--mobile-action-bottom', `${bottom}px`);
+      document.documentElement.style.setProperty('--mobile-viewport-height', `${Math.round(viewport.height)}px`);
+    }
+
+    syncMobileViewport();
+    window.addEventListener('resize', syncMobileViewport);
+    window.addEventListener('orientationchange', syncMobileViewport);
+    window.visualViewport?.addEventListener('resize', syncMobileViewport);
+    window.visualViewport?.addEventListener('scroll', syncMobileViewport);
+
+    return () => {
+      window.removeEventListener('resize', syncMobileViewport);
+      window.removeEventListener('orientationchange', syncMobileViewport);
+      window.visualViewport?.removeEventListener('resize', syncMobileViewport);
+      window.visualViewport?.removeEventListener('scroll', syncMobileViewport);
+    };
+  }, []);
 
   function renderMobileChart() {
     if (mobileChartTab === 'intraday') {
