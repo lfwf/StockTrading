@@ -13,13 +13,13 @@ export function TrainingPresetDropdown({
 }) {
   const active = value.length ? value : ['random'];
   const label = active.includes('random')
-    ? '随机盲盘'
+    ? '随机训练'
     : active.map((key) => TRAINING_PRESETS.find((item) => item.key === key)?.title).filter(Boolean).join('、');
 
   return (
     <details className="status-dropdown">
       <summary>
-        <span>专项训练</span>
+        <span>训练类型</span>
         <b>{label}</b>
       </summary>
       <div className="dropdown-menu">
@@ -38,8 +38,8 @@ export function TrainingPresetPanel({ value, onChange, mistakes }: { value: Trai
   return (
     <div className="card training-card">
       <div className="chart-header">
-        <h2>专项训练</h2>
-        <span>让训练更像刷题，而不是随机娱乐</span>
+        <h2>训练类型</h2>
+        <span>选择这次想练的场景</span>
       </div>
       <div className="preset-list">
         {TRAINING_PRESETS.map((item) => (
@@ -58,10 +58,10 @@ export function MistakeBookPanel({ mistakes, onTrain, onClear }: { mistakes: Mis
     <div className="card training-card mistake-card">
       <div className="chart-header">
         <h2>错题本</h2>
-        <span>自动收集追高、放弃后大涨、回撤过大的样本</span>
+        <span>记录回撤较大、放弃后上涨较多的样本</span>
       </div>
       {mistakes.length === 0 ? (
-        <p className="muted-text">还没有错题。买入后大回撤、放弃后大涨，都会自动进入这里。</p>
+        <p className="muted-text">还没有错题。多做几组训练后，这里会留下需要复看的样本。</p>
       ) : (
         <>
           <div className="mistake-list">
@@ -74,7 +74,7 @@ export function MistakeBookPanel({ mistakes, onTrain, onClear }: { mistakes: Mis
             ))}
           </div>
           <div className="training-actions">
-            <button className="primary-btn small" onClick={onTrain}>只练错题</button>
+            <button className="primary-btn small" onClick={onTrain}>复练错题</button>
             <button className="ghost-btn small" onClick={onClear}>清空</button>
           </div>
         </>
