@@ -84,15 +84,23 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
   } = trainer;
 
   useEffect(() => {
+    function realignActionBar() {
+      if (window.innerWidth > 760) return;
+      syncMobileActionBarViewport();
+      setActionBarHidden(false);
+    }
+
     syncMobileActionBarViewport();
     window.addEventListener('resize', syncMobileActionBarViewport);
     window.addEventListener('orientationchange', syncMobileActionBarViewport);
+    window.addEventListener('mobile-action-bar-realign', realignActionBar);
     window.visualViewport?.addEventListener('resize', syncMobileActionBarViewport);
     window.visualViewport?.addEventListener('scroll', syncMobileActionBarViewport);
 
     return () => {
       window.removeEventListener('resize', syncMobileActionBarViewport);
       window.removeEventListener('orientationchange', syncMobileActionBarViewport);
+      window.removeEventListener('mobile-action-bar-realign', realignActionBar);
       window.visualViewport?.removeEventListener('resize', syncMobileActionBarViewport);
       window.visualViewport?.removeEventListener('scroll', syncMobileActionBarViewport);
     };
