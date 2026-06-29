@@ -8,7 +8,6 @@ import { IntradayChart, KLineChart } from './Charts';
 import { DecisionChecklist } from './DecisionChecklist';
 import { TrainingPresetDropdown } from './TrainingPanels';
 import { ReviewPanel } from './ReviewPanel';
-import { TRAINING_PHASES } from '../domain/trainingPhase';
 
 const POSITION_SIZES: PositionSize[] = [25, 50, 100];
 const TIME_MODES: TimeMode[] = ['open', 'noon', 'close'];
@@ -26,7 +25,6 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
   const [mobileChartTab, setMobileChartTab] = useState<MobileChartTab>('intraday');
   const {
     scenario,
-    dataStatus,
     showStock,
     setShowStock,
     showDate,
@@ -39,8 +37,6 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
     tradeMessage,
     trainingPresets,
     toggleTrainingPreset,
-    trainingPhase,
-    switchTrainingPhase,
     checklist,
     setChecklist,
     mistakes,
@@ -61,8 +57,6 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
     visibleHigh60,
     volumeMa20,
     indexChange,
-    filteredCount,
-    trainingCases,
     resetTraining,
     switchMode,
     buy,
@@ -139,17 +133,6 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
         <TrainingPresetDropdown value={trainingPresets} onToggle={toggleTrainingPreset} mistakes={mistakes.length} />
         <button className="status-toggle ghost-btn" onClick={() => setShowStock((value) => !value)}>{showStock ? '隐藏股票' : '显示股票'}</button>
         <button className="status-toggle ghost-btn" onClick={() => setShowDate((value) => !value)}>{showDate ? '隐藏日期' : '显示日期'}</button>
-      </section>
-
-      <section className="data-row phase-row">
-        <span>{dataStatus} · 匹配 {filteredCount || trainingCases.length} 题</span>
-        <div className="phase-switch">
-          {TRAINING_PHASES.map((item) => (
-            <button key={item.key} className={trainingPhase === item.key ? 'mode-btn active' : 'mode-btn'} onClick={() => switchTrainingPhase(item.key)} title={item.desc}>
-              {item.title}
-            </button>
-          ))}
-        </div>
       </section>
 
       <section className="mobile-chart-card card chart-card">
