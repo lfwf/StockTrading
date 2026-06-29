@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { LocalAccount } from '../hooks/useLocalAccount';
 import type { useTradingTrainer } from '../hooks/useTradingTrainer';
 import { change, pct } from '../lib/indicators';
-import { getTrainingPhaseLabel, type TrainingPhase } from '../domain/trainingPhase';
+import { type TrainingPhase } from '../domain/trainingPhase';
 
 type ProductPage = 'home' | 'knowledge' | 'history' | 'current' | 'mistakes' | 'profile';
 
@@ -134,7 +134,7 @@ export function MistakeProfilePage({ trainer, onNavigate }: { trainer: ReturnTyp
       <div className="profile-grid">
         <StatCard label="模拟买入" value={`${buyTrades}笔`} desc="只统计本机训练记录" />
         <StatCard label="模拟卖出" value={`${sellTrades}笔`} desc={`已实现盈亏 ${realized >= 0 ? '+' : ''}${realized.toFixed(2)}`} />
-        <StatCard label="错题数量" value={`${trainer.mistakes.length}题`} desc="可进入只练错题模式" />
+        <StatCard label="错题数量" value={`${trainer.mistakes.length}题`} desc="可进入错题重练" />
       </div>
 
       <div className="card profile-card">
@@ -164,7 +164,7 @@ export function MistakeProfilePage({ trainer, onNavigate }: { trainer: ReturnTyp
           <p className="muted-text">暂无错题。</p>
         )}
         <div className="training-actions">
-          <button className="primary-btn small" onClick={() => onNavigate('history', 'history')}>只练错题</button>
+          <button className="primary-btn small" onClick={() => onNavigate('history', 'history')}>去历史盲盘训练</button>
           <button className="ghost-btn small" onClick={() => trainer.setMistakes([])}>清空错题</button>
         </div>
       </div>
