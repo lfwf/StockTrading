@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
-"""Generate blind trading training cases from AKShare.
+"""Generate dense blind trading training cases from AKShare + BaoStock.
 
-The React app reads public/data/training-cases.json. This script fetches a small,
-front-end friendly dataset and writes it in the same shape as the app domain type.
+The React app reads public/data/training-cases.json. This script now builds two
+case pools:
 
-Usage:
-    python scripts/sync_akshare.py --case-count 40 --member-limit 80
+- historyCases: scan every stock across many decision dates, score scenes, then
+  keep diversified high-value historical cases.
+- currentCases: one latest-trading-day case per stock, regenerated whenever the
+  script runs after daily market data is available.
 
-Notes:
-    - AKShare interfaces can change. The script intentionally uses column and
-      function fallbacks instead of assuming one rigid schema.
-    - Historical intraday availability depends on the upstream data source. If
-      minute data for a historical date is unavailable, the script builds a
-      deterministic intraday curve from the daily OHLC bar so the product can
-      still run. Replace that fallback after you confirm a stable minute source.
+For front-end compatibility, the top-level `cases` field still points to
+historyCases.
 """
 
 from __future__ import annotations
@@ -24,6 +21,7 @@ import math
 import random
 import signal
 import time
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -32,7 +30,6 @@ from typing import Any
 import akshare as ak
 import baostock as bs
 import pandas as pd
-
 
 FALLBACK_MEMBERS = [
     {"symbol": "600519", "name": "贵州茅台", "industry": "白酒", "market": "沪市"},
@@ -54,6 +51,14 @@ class Member:
     name: str
     industry: str = "沪深300"
     market: str = "沪市"
+
+
+@dataclass
+class Candidate:
+    index: int
+    score: float
+    tags: list[str]
+    future_stats: dict[str, float | None]
 
 
 def first_existing(row: pd.Series, candidates: list[str], default: Any = "") -> Any:
@@ -82,12 +87,35 @@ def infer_market(symbol: str) -> str:
     return "沪市" if symbol.startswith("6") else "深市"
 
 
+def call_with_timeout(call: Any, seconds: int) -> Any:
+    def raise_timeout(_signum: int, _frame: Any) -> None:
+        raise TimeoutError(f"data call timed out after {seconds}s")
+
+    previous_handler = signal.signal(signal.SIGALRM, raise_timeout)
+    signal.alarm(seconds)
+    try:
+        return call()
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous_handler)
+
+
+def normalize_member_frame(df: pd.DataFrame, default_industry: str = "沪深300") -> list[Member]:
+    members: list[Member] = []
+    seen: set[str] = set()
+    for _, row in df.iterrows():
+        symbol = normalize_symbol(first_existing(row, ["品种代码", "成分券代码", "证券代码", "代码", "stock_code", "code"]))
+        if not symbol or len(symbol) != 6 or symbol in seen:
+            continue
+        seen.add(symbol)
+        name = str(first_existing(row, ["品种名称", "成分券名称", "证券简称", "名称", "stock_name", "name"], symbol)).strip()
+        industry = str(first_existing(row, ["行业", "所属行业", "中证行业", "industry"], default_industry)).strip() or default_industry
+        members.append(Member(symbol=symbol, name=name, industry=industry, market=infer_market(symbol)))
+    return members
+
+
 def fetch_index_members(index_symbol: str, label: str, limit: int, fallback: list[dict[str, str]] | None = None) -> list[Member]:
     candidates: list[list[Member]] = []
-
-    # Use multiple free AKShare constituent sources. Some upstream endpoints can
-    # occasionally return an incomplete list, so we normalize each result and
-    # choose the most complete one instead of trusting the first response.
     for call in (
         lambda: ak.index_stock_cons(symbol=index_symbol),
         lambda: ak.index_stock_cons_weight_csindex(symbol=index_symbol),
@@ -106,8 +134,7 @@ def fetch_index_members(index_symbol: str, label: str, limit: int, fallback: lis
         return [Member(**item) for item in (fallback or [])[:limit]]
 
     candidates.sort(key=len, reverse=True)
-    members = candidates[0]
-    return members[:limit]
+    return candidates[0][:limit]
 
 
 def merge_members(groups: list[list[Member]], limit: int) -> list[Member]:
@@ -124,50 +151,17 @@ def merge_members(groups: list[list[Member]], limit: int) -> list[Member]:
     return merged
 
 
-def fetch_hs300_members(limit: int) -> list[Member]:
-    return fetch_index_members("000300", "沪深300", limit, FALLBACK_MEMBERS)
-
-
-def fetch_csi500_members(limit: int) -> list[Member]:
-    return fetch_index_members("000905", "中证500", limit)
-
-
 def fetch_universe_members(universe: str, limit: int) -> list[Member]:
     if universe == "hs300":
-        return fetch_hs300_members(limit)
+        return fetch_index_members("000300", "沪深300", limit, FALLBACK_MEMBERS)
     if universe == "csi500":
-        return fetch_csi500_members(limit)
+        return fetch_index_members("000905", "中证500", limit)
     if universe == "csi800":
-        return merge_members([fetch_hs300_members(300), fetch_csi500_members(500)], limit)
+        return merge_members([
+            fetch_index_members("000300", "沪深300", 300, FALLBACK_MEMBERS),
+            fetch_index_members("000905", "中证500", 500),
+        ], limit)
     raise ValueError(f"unsupported universe: {universe}")
-
-
-def call_with_timeout(call: Any, seconds: int) -> Any:
-    def raise_timeout(_signum: int, _frame: Any) -> None:
-        raise TimeoutError(f"AKShare call timed out after {seconds}s")
-
-    previous_handler = signal.signal(signal.SIGALRM, raise_timeout)
-    signal.alarm(seconds)
-    try:
-        return call()
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, previous_handler)
-
-
-def normalize_member_frame(df: pd.DataFrame, default_industry: str = "沪深300") -> list[Member]:
-    frame = df.copy()
-    members: list[Member] = []
-    seen: set[str] = set()
-    for _, row in frame.iterrows():
-        symbol = normalize_symbol(first_existing(row, ["品种代码", "成分券代码", "证券代码", "代码", "stock_code", "code"]))
-        if not symbol or len(symbol) != 6 or symbol in seen:
-            continue
-        seen.add(symbol)
-        name = str(first_existing(row, ["品种名称", "成分券名称", "证券简称", "名称", "stock_name", "name"], symbol)).strip()
-        industry = str(first_existing(row, ["行业", "所属行业", "中证行业", "industry"], default_industry)).strip() or default_industry
-        members.append(Member(symbol=symbol, name=name, industry=industry, market=infer_market(symbol)))
-    return members
 
 
 def number(value: Any, default: float = 0.0) -> float:
@@ -218,8 +212,9 @@ def fetch_baostock_intraday(symbol: str, date: str, period: str) -> list[dict[st
         row = dict(zip(result.fields, result.get_row_data()))
         price = number(row.get("close"))
         volume = number(row.get("volume"))
+        amount = number(row.get("amount"), price * volume)
         volume_sum += volume
-        amount_sum += price * volume
+        amount_sum += amount
         raw_time = str(row.get("time", ""))
         points.append({
             "time": f"{raw_time[8:10]}:{raw_time[10:12]}",
@@ -245,17 +240,10 @@ def fetch_stock_daily(symbol: str, start_date: str, end_date: str, adjust: str) 
             last_error = exc
             time.sleep(0.8 * (attempt + 1))
 
-    # Sina is an independent real-market-data source and avoids making the
-    # entire sync depend on Eastmoney's availability or throttling behavior.
     try:
         market_symbol = f"sh{symbol}" if symbol.startswith("6") else f"sz{symbol}"
         df = call_with_timeout(
-            lambda: ak.stock_zh_a_daily(
-                symbol=market_symbol,
-                start_date=start_date,
-                end_date=end_date,
-                adjust=adjust,
-            ),
+            lambda: ak.stock_zh_a_daily(symbol=market_symbol, start_date=start_date, end_date=end_date, adjust=adjust),
             seconds=20,
         )
         if "turnover" in df.columns:
@@ -282,7 +270,9 @@ def fetch_index_daily(start_date: str, end_date: str) -> list[dict[str, Any]]:
         try:
             df = call()
             bars = normalize_daily_frame(df)
-            return [bar for bar in bars if start_date <= bar["date"].replace("-", "") <= end_date]
+            filtered = [bar for bar in bars if start_date <= bar["date"].replace("-", "") <= end_date]
+            if filtered:
+                return filtered
         except Exception as exc:
             last_error = exc
             continue
@@ -323,43 +313,6 @@ def normalize_daily_frame(df: pd.DataFrame) -> list[dict[str, Any]]:
         bars.append(bar)
         pre_close = close
     return bars
-
-
-def fetch_intraday(symbol: str, date: str, daily_bar: dict[str, Any], period: str) -> tuple[list[dict[str, Any]], str]:
-    points = fetch_baostock_intraday(symbol, date, period)
-    if len(points) >= 20:
-        return points, "baostock"
-
-    start = f"{date} 09:30:00"
-    end = f"{date} 15:00:00"
-    try:
-        df = ak.stock_zh_a_hist_min_em(symbol=symbol, start_date=start, end_date=end, period=period, adjust="")
-        points = normalize_minute_frame(df)
-        if len(points) >= 20:
-            return points, "real"
-    except Exception:
-        pass
-    return synthetic_intraday(daily_bar, seed=sum(ord(ch) for ch in f"{symbol}-{date}")), "synthetic"
-
-
-def fetch_index_intraday(date: str, daily_bar: dict[str, Any], period: str) -> tuple[list[dict[str, Any]], str]:
-    start = f"{date} 09:30:00"
-    end = f"{date} 15:00:00"
-    for call in (
-        lambda: ak.index_zh_a_hist_min_em(symbol="000300", start_date=start, end_date=end, period=period),
-        lambda: ak.stock_zh_index_hist_min_em(symbol="sh000300", start_date=start, end_date=end, period=period),
-    ):
-        try:
-            df = call()
-            points = normalize_minute_frame(df)
-            if len(points) >= 20:
-                return points, "real"
-        except Exception:
-            continue
-    points = fetch_baostock_intraday("000300", date, period)
-    if len(points) >= 20:
-        return points, "baostock"
-    return synthetic_intraday(daily_bar, seed=300300 + int(date.replace("-", ""))), "synthetic"
 
 
 def normalize_minute_frame(df: pd.DataFrame) -> list[dict[str, Any]]:
@@ -432,13 +385,45 @@ def synthetic_intraday(day: dict[str, Any], seed: int) -> list[dict[str, Any]]:
         volume = int(total_volume / len(times) * (0.5 + random.random() * 1.7))
         volume_sum += volume
         amount_sum += volume * price
-        points.append({
-            "time": text,
-            "price": round(price, 3),
-            "avgPrice": round(amount_sum / max(volume_sum, 1), 3),
-            "volume": volume,
-        })
+        points.append({"time": text, "price": round(price, 3), "avgPrice": round(amount_sum / max(volume_sum, 1), 3), "volume": volume})
     return points
+
+
+def fetch_intraday(symbol: str, date: str, daily_bar: dict[str, Any], period: str) -> tuple[list[dict[str, Any]], str]:
+    points = fetch_baostock_intraday(symbol, date, period)
+    if len(points) >= 20:
+        return points, "baostock"
+
+    start = f"{date} 09:30:00"
+    end = f"{date} 15:00:00"
+    try:
+        df = ak.stock_zh_a_hist_min_em(symbol=symbol, start_date=start, end_date=end, period=period, adjust="")
+        points = normalize_minute_frame(df)
+        if len(points) >= 20:
+            return points, "real"
+    except Exception:
+        pass
+    return synthetic_intraday(daily_bar, seed=sum(ord(ch) for ch in f"{symbol}-{date}")), "synthetic"
+
+
+def fetch_index_intraday(date: str, daily_bar: dict[str, Any], period: str) -> tuple[list[dict[str, Any]], str]:
+    start = f"{date} 09:30:00"
+    end = f"{date} 15:00:00"
+    for call in (
+        lambda: ak.index_zh_a_hist_min_em(symbol="000300", start_date=start, end_date=end, period=period),
+        lambda: ak.stock_zh_index_hist_min_em(symbol="sh000300", start_date=start, end_date=end, period=period),
+    ):
+        try:
+            df = call()
+            points = normalize_minute_frame(df)
+            if len(points) >= 20:
+                return points, "real"
+        except Exception:
+            continue
+    points = fetch_baostock_intraday("000300", date, period)
+    if len(points) >= 20:
+        return points, "baostock"
+    return synthetic_intraday(daily_bar, seed=300300 + int(date.replace("-", ""))), "synthetic"
 
 
 def fetch_basic_info(member: Member) -> dict[str, Any]:
@@ -472,102 +457,364 @@ def fetch_basic_info(member: Member) -> dict[str, Any]:
     return info
 
 
-def choose_decision_index(daily: list[dict[str, Any]]) -> int | None:
-    if len(daily) < 130:
+def pct_change(a: float, b: float) -> float:
+    return (b - a) / a if a else 0.0
+
+
+def avg(values: list[float]) -> float:
+    return sum(values) / len(values) if values else 0.0
+
+
+def window_high(daily: list[dict[str, Any]], start: int, end: int) -> float:
+    bars = daily[max(0, start):max(0, end)]
+    return max((float(bar["high"]) for bar in bars), default=0.0)
+
+
+def window_low(daily: list[dict[str, Any]], start: int, end: int) -> float:
+    bars = daily[max(0, start):max(0, end)]
+    return min((float(bar["low"]) for bar in bars), default=0.0)
+
+
+def build_future_stats(daily: list[dict[str, Any]], index: int, forward_days: int) -> dict[str, float | None]:
+    current = daily[index]
+    entry = float(current["open"])
+    future = daily[index + 1:index + forward_days + 1]
+
+    def ret_after(days: int) -> float | None:
+        if len(future) < days:
+            return None
+        return round(pct_change(entry, float(future[days - 1]["close"])), 4)
+
+    if not future:
+        return {"return1d": None, "return3d": None, "return5d": None, "return10d": None, "return20d": None, "maxGain20d": None, "maxDrawdown20d": None}
+
+    max_high = max(float(bar["high"]) for bar in future)
+    min_low = min(float(bar["low"]) for bar in future)
+    return {
+        "return1d": ret_after(1),
+        "return3d": ret_after(3),
+        "return5d": ret_after(5),
+        "return10d": ret_after(10),
+        "return20d": ret_after(20),
+        "maxGain20d": round(pct_change(entry, max_high), 4),
+        "maxDrawdown20d": round(pct_change(entry, min_low), 4),
+    }
+
+
+def classify_candidate(daily: list[dict[str, Any]], index_daily_by_date: dict[str, dict[str, Any]], index: int, forward_days: int) -> Candidate | None:
+    if index < 120 or index + forward_days >= len(daily):
         return None
-    min_index = 75
-    max_index = len(daily) - 25
-    if max_index <= min_index:
+
+    current = daily[index]
+    prev20 = daily[index - 20:index]
+    prev60 = daily[index - 60:index]
+    prev120 = daily[index - 120:index]
+    if len(prev20) < 20 or len(prev60) < 60 or len(prev120) < 120:
         return None
-    return random.randint(min_index, max_index)
+
+    open_price = float(current["open"])
+    close = float(current["close"])
+    high = float(current["high"])
+    low = float(current["low"])
+    pre_close = float(current.get("preClose") or prev20[-1]["close"])
+    high20 = max(float(bar["high"]) for bar in prev20)
+    low20 = min(float(bar["low"]) for bar in prev20)
+    high60 = max(float(bar["high"]) for bar in prev60)
+    low60 = min(float(bar["low"]) for bar in prev60)
+    ma20 = avg([float(bar["close"]) for bar in prev20])
+    ma60 = avg([float(bar["close"]) for bar in prev60])
+    volume_ma20 = avg([float(bar.get("volume", 0)) for bar in prev20])
+    volume_ratio = float(current.get("volume", 0)) / max(volume_ma20, 1)
+    gap = pct_change(pre_close, open_price)
+    last5_ret = pct_change(float(daily[index - 5]["close"]), float(prev20[-1]["close"]))
+    trend20 = pct_change(float(prev20[0]["close"]), float(prev20[-1]["close"]))
+    trend60 = pct_change(float(prev60[0]["close"]), float(prev60[-1]["close"]))
+    position60 = (open_price - low60) / max(high60 - low60, open_price * 0.01)
+    upper_shadow = (high - max(open_price, close)) / max(high - low, close * 0.01)
+    lower_shadow = (min(open_price, close) - low) / max(high - low, close * 0.01)
+    body_ret = pct_change(open_price, close)
+
+    index_bars = [index_daily_by_date.get(bar["date"]) for bar in prev20]
+    index_bars = [bar for bar in index_bars if bar]
+    index_ret20 = pct_change(float(index_bars[0]["close"]), float(index_bars[-1]["close"])) if len(index_bars) >= 2 else 0.0
+    relative_strength = trend20 - index_ret20
+    future_stats = build_future_stats(daily, index, forward_days)
+
+    tags: list[str] = []
+    score = 0.0
+
+    if open_price >= high20 * 0.985 or close >= high20 * 0.985:
+        tags.append("breakout")
+        score += 2.0
+    if trend60 > 0.08 and open_price > ma20 and body_ret < 0.01 and lower_shadow > 0.28:
+        tags.append("pullback")
+        score += 1.8
+    if gap > 0.025 or last5_ret > 0.08 or position60 > 0.86:
+        tags.append("impulse")
+        score += 1.4
+    if index_ret20 < -0.045:
+        tags.append("weak_market")
+        score += 1.2
+    if relative_strength > 0.06:
+        tags.append("strong_vs_market")
+        score += 1.2
+    if upper_shadow > 0.35 and volume_ratio > 1.25:
+        tags.append("chase_high_risk")
+        score += 1.6
+    if trend60 < -0.08 and open_price < ma60:
+        tags.append("downtrend_trap")
+        score += 1.4
+    if abs(gap) > 0.025:
+        tags.append("gap")
+        score += 0.7
+    if volume_ratio > 1.5:
+        tags.append("volume_expand")
+        score += 0.8
+
+    max_gain = future_stats.get("maxGain20d") or 0
+    max_drawdown = future_stats.get("maxDrawdown20d") or 0
+    ret5 = future_stats.get("return5d") or 0
+    ret10 = future_stats.get("return10d") or 0
+    if max_gain >= 0.08 and max_drawdown > -0.08:
+        tags.append("good_entry")
+        score += 1.6
+    if ret5 <= -0.04 or max_drawdown <= -0.08:
+        tags.append("bad_entry")
+        score += 1.4
+    if ret10 >= 0.06:
+        score += 0.8
+
+    if abs(trend20) < 0.015 and volume_ratio < 1.15 and abs(ret5) < 0.025:
+        score -= 1.4
+    if not tags:
+        tags.append("random_context")
+
+    return Candidate(index=index, score=round(score, 4), tags=tags, future_stats=future_stats)
+
+
+def scan_candidates(daily: list[dict[str, Any]], index_daily_by_date: dict[str, dict[str, Any]], args: argparse.Namespace) -> list[Candidate]:
+    result: list[Candidate] = []
+    start = max(args.lookback_days, 120)
+    end = len(daily) - args.forward_days - 1
+    for index in range(start, max(start, end), args.candidate_step):
+        item = classify_candidate(daily, index_daily_by_date, index, args.forward_days)
+        if item and item.score >= args.min_score:
+            result.append(item)
+    return result
+
+
+def diversify_candidates(candidates: list[Candidate], args: argparse.Namespace) -> list[Candidate]:
+    selected: list[Candidate] = []
+    tag_counts: dict[str, int] = defaultdict(int)
+    for item in sorted(candidates, key=lambda x: x.score, reverse=True):
+        if any(abs(item.index - old.index) < args.min_gap_days for old in selected):
+            continue
+        main_tag = item.tags[0]
+        if tag_counts[main_tag] >= args.max_same_tag_per_stock:
+            continue
+        selected.append(item)
+        tag_counts[main_tag] += 1
+        if len(selected) >= args.max_cases_per_stock:
+            break
+    return sorted(selected, key=lambda x: x.index)
+
+
+def slice_by_dates(index_daily_by_date: dict[str, dict[str, Any]], dates: list[str]) -> list[dict[str, Any]]:
+    return [index_daily_by_date[date] for date in dates if date in index_daily_by_date]
+
+
+def build_case(
+    member: Member,
+    stock_info: dict[str, Any],
+    daily: list[dict[str, Any]],
+    index_daily_by_date: dict[str, dict[str, Any]],
+    candidate: Candidate,
+    phase: str,
+    args: argparse.Namespace,
+    stock_intraday_cache: dict[str, tuple[list[dict[str, Any]], str]],
+    index_intraday_cache: dict[str, tuple[list[dict[str, Any]], str]],
+) -> tuple[dict[str, Any], bool, bool]:
+    start = max(0, candidate.index - args.lookback_days)
+    end = min(len(daily), candidate.index + args.forward_days + 1)
+    sliced_daily = daily[start:end]
+    decision_index = candidate.index - start
+    decision_bar = daily[candidate.index]
+    decision_date = decision_bar["date"]
+    dates = [bar["date"] for bar in sliced_daily]
+    sliced_index_daily = slice_by_dates(index_daily_by_date, dates)
+
+    def stock_points_for(bar: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
+        date = bar["date"]
+        if date not in stock_intraday_cache:
+            stock_intraday_cache[date] = fetch_intraday(member.symbol, date, bar, args.minute_period)
+            time.sleep(args.sleep)
+        return stock_intraday_cache[date]
+
+    def index_points_for(bar: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
+        date = bar["date"]
+        index_bar = index_daily_by_date.get(date)
+        if not index_bar:
+            return synthetic_intraday(bar, seed=300300 + int(date.replace("-", ""))), "synthetic"
+        if date not in index_intraday_cache:
+            index_intraday_cache[date] = fetch_index_intraday(date, index_bar, args.minute_period)
+            time.sleep(args.sleep)
+        return index_intraday_cache[date]
+
+    full_intraday, stock_source = stock_points_for(decision_bar)
+    index_intraday, index_source = index_points_for(decision_bar)
+    intraday_by_date: dict[str, list[dict[str, Any]]] = {decision_date: full_intraday}
+    if phase == "history":
+        for future_bar in daily[candidate.index + 1:candidate.index + args.forward_days + 1]:
+            future_points, _source = stock_points_for(future_bar)
+            intraday_by_date[future_bar["date"]] = future_points
+
+    case = {
+        "id": f"{member.symbol}-{phase}-{decision_date}-{candidate.index}",
+        "phase": phase,
+        "stock": stock_info,
+        "daily": sliced_daily,
+        "indexDaily": sliced_index_daily,
+        "decisionIndex": decision_index,
+        "fullIntraday": full_intraday,
+        "indexIntraday": index_intraday,
+        "intradayByDate": intraday_by_date,
+        "sceneTags": candidate.tags,
+        "score": candidate.score,
+        "futureStats": candidate.future_stats,
+        "dataQuality": {
+            "daily": "real",
+            "indexDaily": "real" if sliced_index_daily else "missing",
+            "stockIntraday": stock_source,
+            "indexIntraday": index_source,
+        },
+    }
+    return case, stock_source != "synthetic", index_source != "synthetic"
+
+
+def build_current_candidate(daily: list[dict[str, Any]], index_daily_by_date: dict[str, dict[str, Any]], args: argparse.Namespace) -> Candidate | None:
+    index = len(daily) - 1
+    if index < args.lookback_days:
+        return None
+    item = classify_candidate(daily + [daily[-1]] * max(args.forward_days + 1, 21), index, index_daily_by_date, args.forward_days)  # type: ignore[arg-type]
+    if item:
+        return Candidate(index=index, score=item.score, tags=["current", *item.tags], future_stats={})
+    return Candidate(index=index, score=0, tags=["current"], future_stats={})
 
 
 def build_cases(args: argparse.Namespace) -> dict[str, Any]:
     random.seed(args.seed)
-    members = fetch_hs300_members(args.member_limit)
+    members = fetch_universe_members(args.universe, args.member_limit)
     random.shuffle(members)
     index_daily = fetch_index_daily(args.start_date, args.end_date)
-    if len(index_daily) < 130:
+    if len(index_daily) < max(args.lookback_days, 130):
         raise RuntimeError("沪深300指数日线不足，无法生成训练题")
     index_daily_by_date = {bar["date"]: bar for bar in index_daily}
 
-    cases: list[dict[str, Any]] = []
+    history_cases: list[dict[str, Any]] = []
+    current_cases: list[dict[str, Any]] = []
     real_stock_intraday = 0
     real_index_intraday = 0
-    for member in members:
-        if len(cases) >= args.case_count:
-            break
+
+    for member_no, member in enumerate(members, start=1):
         try:
             daily = fetch_stock_daily(member.symbol, args.start_date, args.end_date, args.adjust)
-            decision_index = choose_decision_index(daily)
-            if decision_index is None:
+            if len(daily) < args.lookback_days + args.forward_days + 10:
                 print(f"skip {member.symbol}: daily bars not enough")
                 continue
 
-            decision_bar = daily[decision_index]
-            date = decision_bar["date"]
-            index_bar = index_daily_by_date.get(date)
-            if index_bar is None:
-                print(f"skip {member.symbol}: no HS300 index bar for {date}")
-                continue
-            stock_intraday, stock_intraday_source = fetch_intraday(member.symbol, date, decision_bar, args.minute_period)
-            index_intraday, index_intraday_source = fetch_index_intraday(date, index_bar, args.minute_period)
-            intraday_by_date = {date: stock_intraday}
-            for future_bar in daily[decision_index + 1:decision_index + 21]:
-                future_points, _ = fetch_intraday(member.symbol, future_bar["date"], future_bar, args.minute_period)
-                intraday_by_date[future_bar["date"]] = future_points
-            real_stock_intraday += stock_intraday_source != "synthetic"
-            real_index_intraday += index_intraday_source != "synthetic"
-            case = {
-                "id": f"{member.symbol}-{date}-{len(cases)}",
-                "stock": fetch_basic_info(member),
-                "daily": daily,
-                "indexDaily": index_daily,
-                "decisionIndex": decision_index,
-                "fullIntraday": stock_intraday,
-                "indexIntraday": index_intraday,
-                "intradayByDate": intraday_by_date,
-                "dataQuality": {
-                    "daily": "real",
-                    "indexDaily": "real",
-                    "stockIntraday": stock_intraday_source,
-                    "indexIntraday": index_intraday_source,
-                },
-            }
-            cases.append(case)
-            print(f"case {len(cases)}/{args.case_count}: {member.symbol} {member.name} {date}")
+            stock_info = fetch_basic_info(member)
+            stock_intraday_cache: dict[str, tuple[list[dict[str, Any]], str]] = {}
+            index_intraday_cache: dict[str, tuple[list[dict[str, Any]], str]] = {}
+
+            candidates = scan_candidates(daily, index_daily_by_date, args)
+            selected = diversify_candidates(candidates, args)
+            for item in selected:
+                case, stock_real, index_real = build_case(member, stock_info, daily, index_daily_by_date, item, "history", args, stock_intraday_cache, index_intraday_cache)
+                history_cases.append(case)
+                real_stock_intraday += int(stock_real)
+                real_index_intraday += int(index_real)
+                print(f"history {len(history_cases)}: {member.symbol} {member.name} {case['daily'][case['decisionIndex']]['date']} score={item.score} tags={','.join(item.tags[:3])}")
+                if args.max_history_cases and len(history_cases) >= args.max_history_cases:
+                    break
+
+            current_candidate = build_current_candidate(daily, index_daily_by_date, args)
+            if current_candidate and (not args.current_count or len(current_cases) < args.current_count):
+                current_case, stock_real, index_real = build_case(member, stock_info, daily, index_daily_by_date, current_candidate, "current", args, stock_intraday_cache, index_intraday_cache)
+                current_cases.append(current_case)
+                real_stock_intraday += int(stock_real)
+                real_index_intraday += int(index_real)
+                print(f"current {len(current_cases)}: {member.symbol} {member.name} {current_case['daily'][current_case['decisionIndex']]['date']}")
+
+            if args.max_history_cases and len(history_cases) >= args.max_history_cases:
+                print("max history case count reached")
+                break
             time.sleep(args.sleep)
         except Exception as exc:
             print(f"skip {member.symbol} {member.name}: {exc}")
             continue
 
-    if not cases:
-        raise RuntimeError("没有生成任何训练题；请检查 AKShare 网络、接口或降低筛选条件")
+        if member_no % 20 == 0:
+            print(f"progress: {member_no}/{len(members)} members, history={len(history_cases)}, current={len(current_cases)}")
 
+    if not history_cases and not current_cases:
+        raise RuntimeError("没有生成任何训练题；请检查 AKShare/BaoStock 网络、接口或降低筛选条件")
+
+    total_cases = len(history_cases) + len(current_cases)
     return {
         "source": "AKShare + BaoStock",
         "generatedAt": datetime.now().isoformat(timespec="seconds"),
+        "strategy": {
+            "universe": args.universe,
+            "lookbackDays": args.lookback_days,
+            "forwardDays": args.forward_days,
+            "candidateStep": args.candidate_step,
+            "maxCasesPerStock": args.max_cases_per_stock,
+            "minGapDays": args.min_gap_days,
+            "minScore": args.min_score,
+        },
         "quality": {
             "daily": "real",
-            "totalCases": len(cases),
+            "totalCases": total_cases,
+            "historyCases": len(history_cases),
+            "currentCases": len(current_cases),
             "realStockIntradayCases": real_stock_intraday,
             "realIndexIntradayCases": real_index_intraday,
         },
-        "cases": cases,
+        "cases": history_cases,
+        "historyCases": history_cases,
+        "currentCases": current_cases,
     }
 
 
+def write_json(path: str, data: Any) -> None:
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print(f"wrote {output}")
+
+
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Sync AKShare data for blind trading trainer")
-    parser.add_argument("--start-date", default="20220101", help="AKShare start date, e.g. 20220101")
-    parser.add_argument("--end-date", default=datetime.now().strftime("%Y%m%d"), help="AKShare end date, e.g. 20260625")
+    parser = argparse.ArgumentParser(description="Sync dense AKShare/BaoStock cases for blind trading trainer")
+    parser.add_argument("--start-date", default="20200101", help="AKShare start date, e.g. 20200101")
+    parser.add_argument("--end-date", default=datetime.now().strftime("%Y%m%d"), help="AKShare end date, e.g. 20260629")
     parser.add_argument("--adjust", default="qfq", choices=["", "qfq", "hfq"], help="stock price adjustment")
     parser.add_argument("--minute-period", default="5", choices=["1", "5", "15", "30", "60"], help="minute period")
-    parser.add_argument("--member-limit", type=int, default=80, help="number of HS300 members to try")
-    parser.add_argument("--case-count", type=int, default=40, help="number of training cases to generate")
-    parser.add_argument("--sleep", type=float, default=0.25, help="sleep seconds between stock requests")
-    parser.add_argument("--seed", type=int, default=20260625)
+    parser.add_argument("--universe", default="csi800", choices=["hs300", "csi500", "csi800"], help="stock universe")
+    parser.add_argument("--member-limit", type=int, default=300, help="number of universe members to try")
+    parser.add_argument("--lookback-days", type=int, default=140, help="daily bars kept before decision day")
+    parser.add_argument("--forward-days", type=int, default=20, help="future bars kept after historical decision day")
+    parser.add_argument("--candidate-step", type=int, default=5, help="scan one candidate every N trading days")
+    parser.add_argument("--max-cases-per-stock", type=int, default=12, help="maximum historical cases per stock")
+    parser.add_argument("--max-same-tag-per-stock", type=int, default=3, help="maximum cases for the same primary tag per stock")
+    parser.add_argument("--min-gap-days", type=int, default=30, help="minimum gap between selected cases of the same stock")
+    parser.add_argument("--min-score", type=float, default=1.8, help="minimum scene score for historical cases")
+    parser.add_argument("--max-history-cases", type=int, default=0, help="0 means no global cap")
+    parser.add_argument("--current-count", type=int, default=0, help="0 means one current case for every processed stock")
+    parser.add_argument("--sleep", type=float, default=0.18, help="sleep seconds between data requests")
+    parser.add_argument("--seed", type=int, default=20260629)
     parser.add_argument("--output", default="public/data/training-cases.json")
+    parser.add_argument("--history-output", default="public/data/history-cases.json")
+    parser.add_argument("--current-output", default="public/data/current-cases.json")
     return parser.parse_args()
 
 
@@ -575,10 +822,22 @@ def main() -> None:
     try:
         args = parse_args()
         dataset = build_cases(args)
-        output = Path(args.output)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(dataset, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-        print(f"wrote {output} with {len(dataset['cases'])} cases")
+        write_json(args.output, dataset)
+        write_json(args.history_output, {
+            "source": dataset["source"],
+            "generatedAt": dataset["generatedAt"],
+            "strategy": dataset["strategy"],
+            "quality": dataset["quality"],
+            "cases": dataset["historyCases"],
+        })
+        write_json(args.current_output, {
+            "source": dataset["source"],
+            "generatedAt": dataset["generatedAt"],
+            "strategy": dataset["strategy"],
+            "quality": dataset["quality"],
+            "cases": dataset["currentCases"],
+        })
+        print(f"done: history={len(dataset['historyCases'])}, current={len(dataset['currentCases'])}")
     finally:
         if BAOSTOCK_LOGGED_IN:
             bs.logout()
