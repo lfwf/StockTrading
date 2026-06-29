@@ -12,12 +12,13 @@
 
 @media (max-width: 760px) {
   .product-shell {
-    padding-bottom: 92px;
+    padding-bottom: calc(122px + var(--mobile-action-bottom, 10px));
   }
 
   .training-workspace {
     display: grid;
     gap: 10px;
+    padding-bottom: 22px;
   }
 
   .mobile-chart-card {
@@ -144,17 +145,22 @@
     position: fixed;
     left: 8px;
     right: 8px;
-    bottom: 8px;
-    z-index: 40;
+    bottom: var(--mobile-action-bottom, calc(10px + env(safe-area-inset-bottom, 0px)));
+    z-index: 1000;
     display: grid;
     grid-template-columns: 1.1fr 1.1fr 0.9fr 0.9fr 0.9fr;
     gap: 6px;
     padding: 8px;
-    background: rgba(7, 16, 24, 0.96);
-    border: 1px solid rgba(148, 163, 184, 0.22);
+    background: rgba(7, 16, 24, 0.98);
+    border: 1px solid rgba(148, 163, 184, 0.24);
     border-radius: 16px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.38);
     backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    will-change: transform, bottom;
+    contain: layout paint;
   }
 
   .mobile-action-bar button {
@@ -162,6 +168,7 @@
     padding: 8px 4px;
     border-radius: 10px;
     font-size: 12px;
+    touch-action: manipulation;
   }
 }
 
