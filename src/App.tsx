@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { TrainingWorkspace } from './components/TrainingWorkspace';
 import { AccountPage, HomePage, KnowledgePage, MistakeProfilePage, type ProductPage } from './components/ProductPages';
 import { useLocalAccount } from './hooks/useLocalAccount';
@@ -19,6 +19,7 @@ export default function App() {
   const { account, signIn, signOut } = useLocalAccount();
   const [activePage, setActivePage] = useState<ProductPage>('home');
   const [navOpen, setNavOpen] = useState(false);
+  const phaseSwitchTimer = useRef<number | null>(null);
   const activeItem = NAV_ITEMS.find((item) => item.key === activePage) ?? NAV_ITEMS[0];
 
   useEffect(() => {
@@ -30,7 +31,25 @@ export default function App() {
     };
   }, [navOpen]);
 
+  useEffect(() => {
+    return () => {
+      if (phaseSwitchTimer.current) window.clearTimeout(phaseSwitchTimer.current);
+      document.body.classList.remove('mobile-phase-switching');
+    };
+  }, []);
+
+  function hideActionBarDuringSwitch() {
+    if (typeof window === 'undefined' || window.innerWidth > 760) return;
+    document.body.classList.add('mobile-phase-switching');
+    if (phaseSwitchTimer.current) window.clearTimeout(phaseSwitchTimer.current);
+    phaseSwitchTimer.current = window.setTimeout(() => {
+      document.body.classList.remove('mobile-phase-switching');
+      window.dispatchEvent(new Event('mobile-action-bar-realign'));
+    }, 320);
+  }
+
   function navigate(page: ProductPage, phase?: TrainingPhase) {
+    if (phase || activePage === 'history' || activePage === 'current') hideActionBarDuringSwitch();
     if (phase) trainer.switchTrainingPhase(phase);
     setActivePage(page);
     setNavOpen(false);
