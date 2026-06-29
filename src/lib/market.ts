@@ -30,6 +30,32 @@ function nextTradingDate(date: Date): Date {
   return next;
 }
 
+function previousTradingDate(date: Date): Date {
+  const prev = new Date(date);
+  prev.setDate(prev.getDate() - 1);
+  while (prev.getDay() === 0 || prev.getDay() === 6) {
+    prev.setDate(prev.getDate() - 1);
+  }
+  return prev;
+}
+
+function latestWeekday(date = new Date()): Date {
+  const latest = new Date(date);
+  latest.setHours(0, 0, 0, 0);
+  while (latest.getDay() === 0 || latest.getDay() === 6) {
+    latest.setDate(latest.getDate() - 1);
+  }
+  return latest;
+}
+
+function startDateForTradingBars(count: number): Date {
+  let start = latestWeekday();
+  for (let i = 1; i < count; i += 1) {
+    start = previousTradingDate(start);
+  }
+  return start;
+}
+
 function formatDate(date: Date): string {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, '0');
@@ -154,8 +180,10 @@ export function createBaseCase(seed = Date.now()): BaseCase {
   const random = seededRandom(seed);
   const stock = STOCKS[Math.floor(random() * STOCKS.length)];
   const startPrice = 18 + random() * 145;
-  const daily = generateDailyBars(seed + stock.symbol.charCodeAt(0), startPrice, 190);
-  const indexDaily = generateDailyBars(seed + 300300, 3800 + random() * 800, 190);
+  const barCount = 190;
+  const startDate = startDateForTradingBars(barCount);
+  const daily = generateDailyBars(seed + stock.symbol.charCodeAt(0), startPrice, barCount, startDate);
+  const indexDaily = generateDailyBars(seed + 300300, 3800 + random() * 800, barCount, startDate);
   const decisionIndex = 95 + Math.floor(random() * 55);
   const decisionBar = daily[decisionIndex];
   const indexDecisionBar = indexDaily[decisionIndex];
