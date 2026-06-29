@@ -158,12 +158,19 @@
     visibility: visible;
     transform: translate3d(0, 0, 0);
     -webkit-transform: translate3d(0, 0, 0);
-    transition: opacity 0.16s ease, transform 0.16s ease;
-    will-change: transform, opacity, bottom;
+    transition: opacity 0.16s ease;
+    will-change: opacity, bottom;
   }
 
   body.mobile-menu-open .mobile-action-bar,
-  body.mobile-phase-switching .mobile-action-bar,
+  body.mobile-phase-switching .mobile-action-bar {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translate3d(0, 0, 0);
+    -webkit-transform: translate3d(0, 0, 0);
+  }
+
   .mobile-action-bar.hide-while-scroll {
     opacity: 0;
     pointer-events: none;
