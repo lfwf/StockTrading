@@ -25,6 +25,7 @@ export function useTrainerPersistence(params: {
   useEffect(() => {
     if (!enabled) return;
     localStorage.setItem('stock-trading-portfolio', JSON.stringify(portfolio));
+    localStorage.setItem('stock-trading-last-equity', String(currentEquity));
     fetch('/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
