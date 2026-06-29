@@ -160,6 +160,17 @@
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     visibility: visible;
+    transform: translate3d(0, 0, 0);
+    -webkit-transform: translate3d(0, 0, 0);
+    transition: opacity 0.16s ease, transform 0.16s ease;
+    will-change: transform, opacity, bottom;
+  }
+
+  .mobile-action-bar.hide-while-scroll {
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(0, calc(100% + 18px), 0);
+    -webkit-transform: translate3d(0, calc(100% + 18px), 0);
   }
 
   .mobile-action-bar button {
