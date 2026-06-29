@@ -21,9 +21,10 @@
   }
 
   .mobile-chart-card {
+    order: 1;
     display: block;
     position: sticky;
-    top: 0;
+    top: 62px;
     z-index: 8;
     padding: 10px;
     background: rgba(12, 23, 34, 0.96);
@@ -65,7 +66,7 @@
   }
 
   .mobile-chart-body .chart {
-    max-height: 310px;
+    max-height: 290px;
   }
 
   .desktop-chart-grid,
@@ -75,6 +76,7 @@
   }
 
   .workspace {
+    order: 2;
     display: block;
   }
 
@@ -100,7 +102,36 @@
     display: none;
   }
 
+  .status-bar {
+    order: 3;
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .status-bar .status-item {
+    padding: 8px 9px;
+    min-height: auto;
+  }
+
+  .status-bar .status-item span,
+  .status-mode > span,
+  .status-dropdown summary > span {
+    font-size: 11px;
+  }
+
+  .status-bar .status-item b {
+    margin-top: 4px;
+    font-size: 14px;
+  }
+
+  .status-mode,
+  .status-dropdown,
+  .status-toggle {
+    grid-column: span 2;
+  }
+
   .lower-grid {
+    order: 4;
     display: block;
     margin-top: 0;
   }
@@ -131,20 +162,6 @@
     padding: 8px 4px;
     border-radius: 10px;
     font-size: 12px;
-  }
-
-  .status-bar {
-    gap: 6px;
-  }
-
-  .status-mode,
-  .status-dropdown,
-  .status-toggle {
-    grid-column: span 2;
-  }
-
-  .phase-row {
-    margin-bottom: 0;
   }
 }
 
