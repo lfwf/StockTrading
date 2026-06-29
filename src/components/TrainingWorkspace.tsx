@@ -37,7 +37,7 @@ function syncMobileActionBarViewport() {
 }
 
 export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useTradingTrainer> }) {
-  const [mobileChartTab, setMobileChartTab] = useState<MobileChartTab>('intraday');
+  const [mobileChartTab, setMobileChartTab] = useState<MobileChartTab>('daily');
   const [actionBarHidden, setActionBarHidden] = useState(false);
   const {
     scenario,
@@ -166,6 +166,11 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
     return result;
   }
 
+  function runTimelineAction(action: () => void | Promise<void>) {
+    setMobileChartTab('intraday');
+    return runMobileAction(action);
+  }
+
   function renderMobileChart() {
     if (mobileChartTab === 'intraday') {
       return (
@@ -215,9 +220,9 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
     <section className={actionBarHidden ? 'mobile-action-bar hide-while-scroll' : 'mobile-action-bar'}>
       <button className="buy-btn" onClick={() => runMobileAction(buy)} disabled={isBankrupt || isBootstrapping}>买入</button>
       <button className="skip-btn" onClick={() => runMobileAction(sell)} disabled={isBootstrapping}>卖出</button>
-      <button className="skip-btn" onClick={() => runMobileAction(skip)} disabled={heldQuantity > 0 || isBootstrapping}>放弃</button>
-      <button className="neutral-btn" onClick={() => runMobileAction(advanceHour)} disabled={scenario.mode === 'close' || isBootstrapping}>1小时</button>
-      <button className="neutral-btn" onClick={() => runMobileAction(advanceDay)} disabled={isBootstrapping}>下一日</button>
+      <button className="skip-btn" onClick={() => runMobileAction(skip)} disabled={isBootstrapping}>放弃</button>
+      <button className="neutral-btn" onClick={() => runTimelineAction(advanceHour)} disabled={scenario.mode === 'close' || isBootstrapping}>下一小时</button>
+      <button className="neutral-btn" onClick={() => runTimelineAction(advanceDay)} disabled={isBootstrapping}>下一日</button>
     </section>
   );
 
@@ -324,9 +329,9 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
               <div className="decision-actions">
                 <button className="buy-btn" onClick={buy} disabled={isBankrupt || isBootstrapping}>模拟买入 {positionSize}%现金</button>
                 <button className="skip-btn" onClick={sell} disabled={isBootstrapping}>模拟卖出 {positionSize}%可卖</button>
-                <button className="neutral-btn" onClick={advanceHour} disabled={scenario.mode === 'close' || isBootstrapping}>下一小时</button>
-                <button className="neutral-btn" onClick={advanceDay} disabled={isBootstrapping}>下一交易日</button>
-                <button className="skip-btn" onClick={skip} disabled={heldQuantity > 0 || isBootstrapping}>放弃本题</button>
+                <button className="neutral-btn" onClick={() => runTimelineAction(advanceHour)} disabled={scenario.mode === 'close' || isBootstrapping}>下一小时</button>
+                <button className="neutral-btn" onClick={() => runTimelineAction(advanceDay)} disabled={isBootstrapping}>下一交易日</button>
+                <button className="skip-btn" onClick={skip} disabled={isBootstrapping}>放弃本题</button>
                 <button className="primary-btn" onClick={() => resetTraining()} disabled={heldQuantity > 0 || isBankrupt || isBootstrapping}>下一题</button>
               </div>
               {tradeMessage && <p className="trade-message">{tradeMessage}</p>}
