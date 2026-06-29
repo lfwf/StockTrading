@@ -91,10 +91,6 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .quote-card .metric:nth-child(n + 7) {
-    display: none;
-  }
-
   .decision-card {
     padding-bottom: 12px;
   }
