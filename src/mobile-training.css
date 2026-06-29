@@ -166,6 +166,7 @@
     will-change: transform, opacity, bottom;
   }
 
+  body.mobile-menu-open .mobile-action-bar,
   .mobile-action-bar.hide-while-scroll {
     opacity: 0;
     pointer-events: none;
