@@ -1,0 +1,60 @@
+@media(max-width:760px){
+  body.chart-fullscreen-open{overflow:hidden;touch-action:none}
+
+  .product-shell{padding-top:2px;padding-bottom:calc(106px + var(--mobile-action-bottom,10px))}
+  .product-topbar{margin-bottom:5px;padding:5px;border-radius:14px}
+  .brand-button{padding:5px 8px;border-radius:12px}
+  .brand-button span{font-size:10px;margin-bottom:1px}
+  .brand-button b{font-size:16px;line-height:1.15}
+  .mobile-menu-button{min-height:38px;padding:7px 12px;border-radius:11px;font-size:13px}
+
+  .mobile-chart-card{top:50px;padding:7px;border-radius:14px;min-height:auto}
+  .mobile-chart-tabs{grid-template-columns:repeat(5,1fr) 46px;gap:4px;margin-bottom:5px}
+  .mobile-chart-tabs button{min-height:34px;padding:5px 0;border-radius:9px;font-size:12px;font-weight:800}
+  .mobile-chart-tabs .chart-fullscreen-btn{font-size:11px;color:#dbeafe;background:rgba(148,163,184,.1);border-color:rgba(148,163,184,.18)}
+
+  .mobile-chart-body .chart-header{display:grid;grid-template-columns:auto 1fr;align-items:center;margin:0 0 2px;gap:8px}
+  .mobile-chart-body .chart-header h2{font-size:13px;line-height:1.1;margin:0}
+  .mobile-chart-body .chart-header span{justify-self:end;font-size:10px;line-height:1.1}
+  .mobile-chart-body .chart{display:block;width:100%;height:min(48vh,390px);min-height:330px;max-height:none;margin-top:-8px}
+
+  .mobile-chart-card.fullscreen{position:fixed;inset:0;z-index:1200;display:flex;flex-direction:column;padding:max(10px,env(safe-area-inset-top)) 8px calc(78px + env(safe-area-inset-bottom));border-radius:0;background:#071018;border:0}
+  .mobile-chart-card.fullscreen .mobile-chart-tabs{flex:0 0 auto;margin-bottom:6px}
+  .mobile-chart-card.fullscreen .mobile-chart-body{flex:1;display:flex;flex-direction:column;min-height:0}
+  .mobile-chart-card.fullscreen .chart-header{flex:0 0 auto}
+  .mobile-chart-card.fullscreen .chart{flex:1;width:100%;height:auto;min-height:0;margin-top:0}
+  body.chart-fullscreen-open .mobile-action-bar{z-index:1300;bottom:max(8px,env(safe-area-inset-bottom));opacity:1;visibility:visible;pointer-events:auto}
+
+  .compact-quote-card{padding:10px 12px 14px;border-radius:15px;margin-bottom:18px}
+  .quote-card-head{margin-bottom:3px}
+  .quote-card-head h2{font-size:14px;line-height:1.15}
+  .quote-more-btn{padding:5px 9px;border-radius:999px;font-size:11px}
+  .compact-quote-card .quote-price{margin:4px 0 8px;gap:10px}
+  .compact-quote-card .quote-price span{font-size:38px;line-height:1;font-weight:900}
+  .compact-quote-card .quote-price b{font-size:18px;line-height:1}
+  .quote-list{display:grid;grid-template-columns:1fr 1fr;gap:0 14px;padding-top:2px}
+  .quote-list-row{display:flex;align-items:center;justify-content:space-between;min-height:30px;border-bottom:1px solid rgba(148,163,184,.1);gap:10px}
+  .quote-list-row span{color:#8091a5;font-size:12px;white-space:nowrap}
+  .quote-list-row b{font-size:14px;color:#dce7f4;white-space:nowrap;text-align:right}
+  .quote-extra-list{margin-top:6px;padding-top:4px;border-top:1px solid rgba(148,163,184,.12)}
+
+  .card{border-radius:15px}
+  .mobile-action-bar{border-radius:15px;padding:7px;gap:6px;grid-template-columns:1.12fr .94fr .82fr 1.08fr .94fr}
+  .mobile-action-bar button{min-height:40px;border-radius:10px;font-size:12px;font-weight:900}
+  .mobile-action-bar .buy-btn{box-shadow:0 8px 22px rgba(220,38,38,.22)}
+  .mobile-action-bar .next-case-btn{background:rgba(148,163,184,.07);border:1px solid rgba(226,232,240,.18);color:#d8e3ec;box-shadow:none}
+  .mobile-action-bar .neutral-btn{background:rgba(88,166,255,.18);border-color:rgba(88,166,255,.34);color:#e8f2ff}
+
+  .side-panel{gap:9px}
+  .decision-card{border-radius:15px}
+}
+
+@media(max-width:390px){
+  .mobile-chart-body .chart{height:46vh;min-height:310px}
+  .compact-quote-card .quote-price span{font-size:34px}
+  .quote-list{gap:0 10px}
+  .quote-list-row span{font-size:11px}
+  .quote-list-row b{font-size:13px}
+  .mobile-action-bar{grid-template-columns:1.05fr .9fr .78fr 1fr .88fr;gap:4px}
+  .mobile-action-bar button{font-size:11px;padding-left:3px;padding-right:3px}
+}
