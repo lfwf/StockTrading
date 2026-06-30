@@ -38,11 +38,21 @@ function syncMobileActionBarViewport() {
   document.documentElement.style.setProperty('--mobile-viewport-height', `${Math.round(viewport.height)}px`);
 }
 
+function QuoteRow({ label, value, valueClass = '' }: { label: string; value: string; valueClass?: string }) {
+  return (
+    <div className="quote-list-row">
+      <span>{label}</span>
+      <b className={valueClass}>{value}</b>
+    </div>
+  );
+}
+
 export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useTradingTrainer> }) {
   const [mobileChartTab, setMobileChartTab] = useState<MobileChartTab>('daily');
   const [actionBarHidden, setActionBarHidden] = useState(false);
   const [pendingTradeAction, setPendingTradeAction] = useState<PendingTradeAction>(null);
   const [showMoreQuote, setShowMoreQuote] = useState(false);
+  const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const {
     scenario,
     showStock,
@@ -133,6 +143,12 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
   }, [scenario.base.id, currentTime, heldQuantity]);
 
   useEffect(() => {
+    document.body.classList.toggle('chart-fullscreen-open', isChartFullscreen);
+    syncMobileActionBarViewport();
+    return () => document.body.classList.remove('chart-fullscreen-open');
+  }, [isChartFullscreen]);
+
+  useEffect(() => {
     let showTimer: number | undefined;
 
     function scheduleShow(delay = 220) {
@@ -144,7 +160,7 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
     }
 
     function hideWhileScrolling() {
-      if (window.innerWidth > 760) return;
+      if (window.innerWidth > 760 || isChartFullscreen) return;
       setActionBarHidden(true);
       scheduleShow();
     }
@@ -168,7 +184,7 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
       window.removeEventListener('touchend', showAfterTouchEnd);
       window.visualViewport?.removeEventListener('scroll', hideWhileScrolling);
     };
-  }, []);
+  }, [isChartFullscreen]);
 
   function toggleRevealInfo() {
     const shouldShow = !(showStock && showDate);
@@ -308,13 +324,14 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
           <button className="status-toggle ghost-btn" onClick={toggleRevealInfo}>显示/隐藏</button>
         </section>
 
-        <section className="mobile-chart-card card chart-card">
+        <section className={isChartFullscreen ? 'mobile-chart-card card chart-card fullscreen' : 'mobile-chart-card card chart-card'}>
           <div className="mobile-chart-tabs">
             {MOBILE_CHART_TABS.map((item) => (
               <button key={item.key} className={mobileChartTab === item.key ? 'active' : ''} onClick={() => setMobileChartTab(item.key)}>
                 {item.label}
               </button>
             ))}
+            <button className="chart-fullscreen-btn" onClick={() => setIsChartFullscreen((value) => !value)}>{isChartFullscreen ? '退出' : '全屏'}</button>
           </div>
           <div className="mobile-chart-body">{renderMobileChart()}</div>
         </section>
@@ -353,24 +370,24 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
                 <span>{scenario.buyPrice.toFixed(2)}</span>
                 <b className={openChange >= 0 ? 'up-text' : 'down-text'}>{pct(openChange)}</b>
               </div>
-              <div className="metric-grid quote-core-grid">
-                <Metric label="昨收" value={scenario.decisionBar.preClose.toFixed(2)} />
-                <Metric label="今开" value={scenario.decisionBar.open.toFixed(2)} />
-                <Metric label="最高" value={intradayHigh.toFixed(2)} />
-                <Metric label="最低" value={intradayLow.toFixed(2)} />
-                <Metric label="成交量" value={formatVolume(intradayVolume)} />
-                <Metric label="量比" value={`${(intradayVolume / Math.max(volumeMa20, 1)).toFixed(2)}x`} />
+              <div className="quote-list quote-core-list">
+                <QuoteRow label="昨收" value={scenario.decisionBar.preClose.toFixed(2)} />
+                <QuoteRow label="今开" value={scenario.decisionBar.open.toFixed(2)} />
+                <QuoteRow label="最高" value={intradayHigh.toFixed(2)} />
+                <QuoteRow label="最低" value={intradayLow.toFixed(2)} />
+                <QuoteRow label="成交量" value={formatVolume(intradayVolume)} />
+                <QuoteRow label="量比" value={`${(intradayVolume / Math.max(volumeMa20, 1)).toFixed(2)}x`} />
               </div>
               {showMoreQuote && (
-                <div className="metric-grid quote-extra-grid">
-                  <Metric label="持仓成本" value={heldQuantity ? cost.toFixed(2) : '--'} />
-                  <Metric label="持仓浮盈亏" value={heldQuantity ? `${(scenario.buyPrice - cost) * heldQuantity >= 0 ? '+' : ''}${((scenario.buyPrice - cost) * heldQuantity).toFixed(2)}` : '--'} valueClass={scenario.buyPrice >= cost ? 'up-text' : 'down-text'} />
-                  <Metric label="可见日成交量" value={formatVolume(scenario.visibleDaily.at(-1)?.volume ?? 0)} />
-                  <Metric label="换手率" value={`${scenario.decisionBar.turnoverRate.toFixed(2)}%`} />
-                  <Metric label="PE" value={scenario.base.stock.pe.toFixed(1)} />
-                  <Metric label="PB" value={scenario.base.stock.pb.toFixed(1)} />
-                  <Metric label="总市值" value={moneyYi(scenario.base.stock.totalMarketCap)} />
-                  <Metric label="流通市值" value={moneyYi(scenario.base.stock.floatMarketCap)} />
+                <div className="quote-list quote-extra-list">
+                  <QuoteRow label="持仓成本" value={heldQuantity ? cost.toFixed(2) : '--'} />
+                  <QuoteRow label="持仓浮盈亏" value={heldQuantity ? `${(scenario.buyPrice - cost) * heldQuantity >= 0 ? '+' : ''}${((scenario.buyPrice - cost) * heldQuantity).toFixed(2)}` : '--'} valueClass={scenario.buyPrice >= cost ? 'up-text' : 'down-text'} />
+                  <QuoteRow label="可见日成交量" value={formatVolume(scenario.visibleDaily.at(-1)?.volume ?? 0)} />
+                  <QuoteRow label="换手率" value={`${scenario.decisionBar.turnoverRate.toFixed(2)}%`} />
+                  <QuoteRow label="PE" value={scenario.base.stock.pe.toFixed(1)} />
+                  <QuoteRow label="PB" value={scenario.base.stock.pb.toFixed(1)} />
+                  <QuoteRow label="总市值" value={moneyYi(scenario.base.stock.totalMarketCap)} />
+                  <QuoteRow label="流通市值" value={moneyYi(scenario.base.stock.floatMarketCap)} />
                 </div>
               )}
             </div>
