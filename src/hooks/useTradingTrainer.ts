@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { AdvisorResult, BaseCase, DecisionChoice, DecisionInput, IntradayPoint, MarketCursor, PortfolioState, PositionSize, ReviewResult, TimeMode } from '../types';
 import { buildTradingScenarioView, createBaseCase, createRandomMode, initialCursorForMode } from '../lib/market';
 import { reviewDecision, reviewSkip } from '../lib/review';
-import { pickTrainingCase } from '../lib/dataset';
+import { loadNextTrainingCase, pickTrainingCase } from '../lib/dataset';
 import { assessScenario } from '../lib/advisor';
 import { buyShares, createPortfolio, equity, normalizePortfolio, persistTrade, positionQuantity, sellShares } from '../lib/trading';
 import { computeTrainerMetrics } from '../domain/trainerMetrics';
@@ -25,6 +25,7 @@ export function useTradingTrainer() {
   const [currentCases, setCurrentCases] = useState<BaseCase[]>([]);
   const [dataStatus, setDataStatus] = useState('正在检查 AKShare 数据');
   const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [isCaseLoading, setIsCaseLoading] = useState(false);
   const [baseCase, setBaseCase] = useState(() => createBaseCase());
   const [mode, setMode] = useState<TimeMode>(() => createRandomMode());
   const [cursor, setCursor] = useState<MarketCursor>(() => ({ dayOffset: 0, pointIndex: 0 }));
@@ -108,6 +109,14 @@ export function useTradingTrainer() {
     return pickTrainingCase(source, seed) ?? createBaseCase(seed);
   }
 
+  function rememberCase(item: BaseCase, phase: TrainingPhase) {
+    if (phase === 'current') {
+      setCurrentCases((items) => [item, ...items.filter((old) => old.id !== item.id)].slice(0, 40));
+    } else {
+      setTrainingCases((items) => [item, ...items.filter((old) => old.id !== item.id)].slice(0, 80));
+    }
+  }
+
   function clearCurrentDecisionState() {
     setReview(null);
     setPendingReview(null);
@@ -115,6 +124,32 @@ export function useTradingTrainer() {
     setUserChoice(null);
     setChecklist(DEFAULT_CHECKLIST);
     setTradeMessage('');
+  }
+
+  function applyBaseCase(nextBase: BaseCase, nextPhase: TrainingPhase, nextMode: TimeMode) {
+    setBaseCase(nextBase);
+    setMode(nextMode);
+    setCursor(initialCursorForMode(nextBase, nextMode));
+    clearCurrentDecisionState();
+    rememberCase(nextBase, nextPhase);
+  }
+
+  async function loadAndApplyNextCase(nextPhase: TrainingPhase, seed = Date.now() + Math.floor(Math.random() * 100000)) {
+    setIsCaseLoading(true);
+    setTradeMessage('正在加载下一题…');
+    try {
+      const remote = await loadNextTrainingCase({
+        phase: nextPhase,
+        presets: nextPhase === 'history' ? trainingPresets : ['random'],
+        excludeId: baseCase.id,
+        seed,
+      });
+      const nextBase = remote?.case ?? getNextBaseCase(seed, nextPhase);
+      const nextMode: TimeMode = nextPhase === 'current' ? 'open' : mode;
+      applyBaseCase(nextBase, nextPhase, nextMode);
+    } finally {
+      setIsCaseLoading(false);
+    }
   }
 
   function toggleTrainingPreset(preset: TrainingPreset) {
@@ -133,14 +168,8 @@ export function useTradingTrainer() {
       setTradeMessage('开始交易后已锁定训练阶段，必须清仓并进入下一题后再切换。');
       return;
     }
-    const seed = Date.now() + Math.floor(Math.random() * 100000);
-    const nextBase = getNextBaseCase(seed, next);
-    const nextMode: TimeMode = next === 'current' ? 'open' : mode;
     setTrainingPhase(next);
-    setBaseCase(nextBase);
-    setMode(nextMode);
-    setCursor(initialCursorForMode(nextBase, nextMode));
-    clearCurrentDecisionState();
+    void loadAndApplyNextCase(next);
   }
 
   function resetTraining(seed = Date.now() + Math.floor(Math.random() * 100000)) {
@@ -152,13 +181,7 @@ export function useTradingTrainer() {
       setTradeMessage('必须先卖出全部持仓，才能进入下一题。');
       return;
     }
-
-    const nextBase = getNextBaseCase(seed);
-    const nextMode: TimeMode = trainingPhase === 'current' ? 'open' : mode;
-    setBaseCase(nextBase);
-    setMode(nextMode);
-    setCursor(initialCursorForMode(nextBase, nextMode));
-    clearCurrentDecisionState();
+    void loadAndApplyNextCase(trainingPhase, seed);
   }
 
   function switchMode(next: TimeMode) {
@@ -182,8 +205,8 @@ export function useTradingTrainer() {
   }
 
   function buy() {
-    if (isBootstrapping) {
-      setTradeMessage('正在恢复上次训练，请稍后再操作。');
+    if (isBootstrapping || isCaseLoading) {
+      setTradeMessage('正在加载训练数据，请稍后再操作。');
       return;
     }
     if (isBankrupt) {
@@ -218,8 +241,8 @@ export function useTradingTrainer() {
   }
 
   function skip() {
-    if (isBootstrapping) {
-      setTradeMessage('正在恢复上次训练，请稍后再操作。');
+    if (isBootstrapping || isCaseLoading) {
+      setTradeMessage('正在加载训练数据，请稍后再操作。');
       return;
     }
     if (heldQuantity > 0) {
@@ -235,8 +258,8 @@ export function useTradingTrainer() {
   }
 
   function sell() {
-    if (isBootstrapping) {
-      setTradeMessage('正在恢复上次训练，请稍后再操作。');
+    if (isBootstrapping || isCaseLoading) {
+      setTradeMessage('正在加载训练数据，请稍后再操作。');
       return;
     }
     const result = sellShares(portfolio, positionSize, scenario.buyPrice, currentDate, currentTime, baseCase.id, baseCase.stock.symbol);
@@ -272,7 +295,7 @@ export function useTradingTrainer() {
       return;
     }
     if (cursor.pointIndex >= points.length - 1) {
-      advanceDay();
+      void advanceDay();
       return;
     }
 
@@ -295,7 +318,7 @@ export function useTradingTrainer() {
 
     let nextPoints = baseCase.intradayByDate?.[nextBar.date];
     if (!nextPoints?.length) {
-      setTradeMessage('正在加载下一交易日真实5分钟行情…');
+      setTradeMessage('正在从数据库加载下一交易日5分钟行情…');
       try {
         const response = await fetch(`/api/market/intraday?symbol=${baseCase.stock.symbol}&date=${nextBar.date}`);
         const data = await response.json() as { points?: IntradayPoint[] };
@@ -304,7 +327,7 @@ export function useTradingTrainer() {
         nextPoints = [];
       }
       if (!nextPoints?.length) {
-        setTradeMessage('下一交易日真实分钟行情暂时无法获取，请稍后重试。');
+        setTradeMessage('下一交易日分钟行情暂时无法获取，请先确认 minute_bars 是否已同步。');
         return;
       }
       setBaseCase((current) => ({
@@ -326,7 +349,7 @@ export function useTradingTrainer() {
   return {
     scenario,
     dataStatus,
-    isBootstrapping,
+    isBootstrapping: isBootstrapping || isCaseLoading,
     showStock,
     setShowStock,
     showDate,
