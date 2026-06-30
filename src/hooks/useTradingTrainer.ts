@@ -16,9 +16,21 @@ import {
   type MistakeItem,
   type TrainingPreset,
 } from '../domain/learning';
+import { buyReasonLabel, noBuyReasonLabel, type BuyReasonKey, type NoBuyReasonKey, type StopLossPlan } from '../domain/trainingIntent';
 import { getCasesForPhase, type TrainingPhase } from '../domain/trainingPhase';
 import { useDatasetBootstrap } from './useDatasetBootstrap';
 import { useTrainerPersistence, type BackendSummary } from './useTrainerPersistence';
+
+export type TrainerTradeState = 'idle' | 'holding-t1' | 'holding-sellable' | 'cleared' | 'reviewed' | 'ended';
+
+function tradeStateLabel(state: TrainerTradeState): string {
+  if (state === 'idle') return '未操作';
+  if (state === 'holding-t1') return 'T+1锁定';
+  if (state === 'holding-sellable') return '可卖出';
+  if (state === 'cleared') return '已清仓';
+  if (state === 'reviewed') return '已复盘';
+  return '已结束';
+}
 
 export function useTradingTrainer() {
   const [trainingCases, setTrainingCases] = useState<BaseCase[]>([]);
@@ -32,6 +44,9 @@ export function useTradingTrainer() {
   const [showStock, setShowStock] = useState(false);
   const [showDate, setShowDate] = useState(false);
   const [positionSize, setPositionSize] = useState<PositionSize>(50);
+  const [buyReason, setBuyReason] = useState<BuyReasonKey>('breakout');
+  const [noBuyReason, setNoBuyReason] = useState<NoBuyReasonKey>('unclear');
+  const [stopLossPlan, setStopLossPlan] = useState<StopLossPlan>(5);
   const [review, setReview] = useState<ReviewResult | null>(null);
   const [pendingReview, setPendingReview] = useState<ReviewResult | null>(null);
   const [advisor, setAdvisor] = useState<AdvisorResult | null>(null);
@@ -73,6 +88,20 @@ export function useTradingTrainer() {
     indexChange,
     filteredCount,
   } = metrics;
+  const currentCaseTrades = portfolio.trades.filter((trade) => trade.caseId === baseCase.id);
+  const hasCurrentCaseTrades = currentCaseTrades.length > 0;
+  const tradeState: TrainerTradeState = isBankrupt
+    ? 'ended'
+    : review
+      ? 'reviewed'
+      : heldQuantity > 0 && availableQuantity === 0
+        ? 'holding-t1'
+        : heldQuantity > 0
+          ? 'holding-sellable'
+          : hasCurrentCaseTrades
+            ? 'cleared'
+            : 'idle';
+  const tradeStateText = tradeStateLabel(tradeState);
 
   useDatasetBootstrap({
     portfolio,
@@ -123,6 +152,9 @@ export function useTradingTrainer() {
     setAdvisor(null);
     setUserChoice(null);
     setChecklist(DEFAULT_CHECKLIST);
+    setBuyReason('breakout');
+    setNoBuyReason('unclear');
+    setStopLossPlan(5);
     setTradeMessage('');
   }
 
@@ -164,12 +196,30 @@ export function useTradingTrainer() {
   }
 
   function switchTrainingPhase(next: TrainingPhase) {
-    if (heldQuantity > 0 || portfolio.trades.some((trade) => trade.caseId === baseCase.id)) {
+    if (heldQuantity > 0 || hasCurrentCaseTrades) {
       setTradeMessage('开始交易后已锁定训练阶段，必须清仓并进入下一题后再切换。');
       return;
     }
     setTrainingPhase(next);
     void loadAndApplyNextCase(next);
+  }
+
+  function recordNoBuyDecisionIfNeeded() {
+    if (hasCurrentCaseTrades || heldQuantity > 0) return;
+    const result = reviewSkip(scenario);
+    const reasonText = `未买入原因：${noBuyReasonLabel(noBuyReason)}`;
+    setUserChoice('skip');
+    if (shouldRecordMistake(result, 'skip')) {
+      const item = createMistakeItem({
+        baseCase,
+        mode: scenario.mode,
+        action: 'skip',
+        result,
+        reason: reasonText,
+        extraTags: [noBuyReasonLabel(noBuyReason)],
+      });
+      setMistakes((current) => [item, ...current.filter((old) => old.id !== item.id)].slice(0, 80));
+    }
   }
 
   function resetTraining(seed = Date.now() + Math.floor(Math.random() * 100000)) {
@@ -181,11 +231,12 @@ export function useTradingTrainer() {
       setTradeMessage('必须先卖出全部持仓，才能进入下一题。');
       return;
     }
+    recordNoBuyDecisionIfNeeded();
     void loadAndApplyNextCase(trainingPhase, seed);
   }
 
   function switchMode(next: TimeMode) {
-    if (heldQuantity > 0 || portfolio.trades.some((trade) => trade.caseId === baseCase.id)) {
+    if (heldQuantity > 0 || hasCurrentCaseTrades) {
       setTradeMessage('开始交易后已锁定时间轴，不能切换训练场景。');
       return;
     }
@@ -198,9 +249,9 @@ export function useTradingTrainer() {
     setUserChoice(null);
   }
 
-  function addMistakeIfNeeded(result: ReviewResult, action: DecisionChoice) {
+  function addMistakeIfNeeded(result: ReviewResult, action: DecisionChoice, reason?: string, extraTags: string[] = []) {
     if (!shouldRecordMistake(result, action)) return;
-    const item = createMistakeItem({ baseCase, mode: scenario.mode, action, result });
+    const item = createMistakeItem({ baseCase, mode: scenario.mode, action, result, reason, extraTags });
     setMistakes((current) => [item, ...current.filter((old) => old.id !== item.id)].slice(0, 80));
   }
 
@@ -223,12 +274,13 @@ export function useTradingTrainer() {
       return;
     }
 
+    const reasonLabel = buyReasonLabel(buyReason);
     const decision: DecisionInput = {
       choice: 'buy',
       positionSize,
       holdPlan: 5,
-      stopLossPct: checklist.risk.includes('3') ? 3 : checklist.risk.includes('5') ? 5 : checklist.risk.includes('8') ? 8 : null,
-      reasonTags: checklistReasons(checklist),
+      stopLossPct: stopLossPlan,
+      reasonTags: [...checklistReasons(checklist), reasonLabel],
     };
 
     setPendingReview(reviewDecision(scenario, decision));
@@ -236,25 +288,8 @@ export function useTradingTrainer() {
     setUserChoice('buy');
     setReview(null);
     setPortfolio(result.portfolio);
-    setTradeMessage(`买入 ${result.trade.quantity} 股，成交金额 ${result.trade.amount.toFixed(2)} 元；该批持仓下一交易日可卖。`);
+    setTradeMessage(`买入 ${result.trade.quantity} 股，成交金额 ${result.trade.amount.toFixed(2)} 元；理由：${reasonLabel}；计划止损 ${stopLossPlan}%；该批持仓下一交易日可卖。`);
     persistTrade(result.portfolio, result.trade, equity(result.portfolio, scenario.buyPrice)).catch(() => undefined);
-  }
-
-  function skip() {
-    if (isBootstrapping || isCaseLoading) {
-      setTradeMessage('正在加载训练数据，请稍后再操作。');
-      return;
-    }
-    if (heldQuantity > 0) {
-      setTradeMessage('当前仍有持仓，不能放弃本题。');
-      return;
-    }
-
-    const result = reviewSkip(scenario);
-    setAdvisor(assessScenario(scenario));
-    setUserChoice('skip');
-    setReview(result);
-    addMistakeIfNeeded(result, 'skip');
   }
 
   function sell() {
@@ -283,11 +318,11 @@ export function useTradingTrainer() {
         choice: 'buy',
         positionSize,
         holdPlan: 5,
-        stopLossPct: null,
-        reasonTags: checklistReasons(checklist),
+        stopLossPct: stopLossPlan,
+        reasonTags: [...checklistReasons(checklist), buyReasonLabel(buyReason)],
       });
       setReview(finalReview);
-      addMistakeIfNeeded(finalReview, 'buy');
+      addMistakeIfNeeded(finalReview, 'buy', `买入理由：${buyReasonLabel(buyReason)}`, [buyReasonLabel(buyReason)]);
       setPendingReview(null);
     }
 
@@ -356,6 +391,14 @@ export function useTradingTrainer() {
     scenario,
     dataStatus,
     isBootstrapping: isBootstrapping || isCaseLoading,
+    buyReason,
+    setBuyReason,
+    noBuyReason,
+    setNoBuyReason,
+    stopLossPlan,
+    setStopLossPlan,
+    tradeState,
+    tradeStateText,
     showStock,
     setShowStock,
     showDate,
@@ -397,7 +440,6 @@ export function useTradingTrainer() {
     resetTraining,
     switchMode,
     buy,
-    skip,
     sell,
     advanceHour,
     advanceDay,
