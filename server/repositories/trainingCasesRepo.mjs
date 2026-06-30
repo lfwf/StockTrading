@@ -77,7 +77,7 @@ export async function pickNextTrainingCase(pool, params = {}) {
   }
   if (tags.length) {
     values.push(tags);
-    filters.push(`tags_json ?| $${values.length}`);
+    filters.push(`tags_json ?| $${values.length}::text[]`);
   }
 
   values.push(randomSeed);
