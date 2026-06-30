@@ -42,6 +42,7 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
   const [mobileChartTab, setMobileChartTab] = useState<MobileChartTab>('daily');
   const [actionBarHidden, setActionBarHidden] = useState(false);
   const [pendingTradeAction, setPendingTradeAction] = useState<PendingTradeAction>(null);
+  const [showMoreQuote, setShowMoreQuote] = useState(false);
   const {
     scenario,
     showStock,
@@ -274,7 +275,7 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
         <>
           <button className="buy-btn" onClick={() => selectTradeAction('buy')} disabled={isBankrupt || isBootstrapping}>买入</button>
           <button className={sellButtonClass} onClick={() => selectTradeAction('sell')} disabled={isBootstrapping} title={sellLockedByT1 ? '当天买入受 T+1 限制，下一交易日才可卖' : undefined}>卖出</button>
-          <button className="primary-btn" onClick={() => runMobileAction(() => resetTraining())} disabled={heldQuantity > 0 || isBankrupt || isBootstrapping}>下一题</button>
+          <button className="primary-btn next-case-btn" onClick={() => runMobileAction(() => resetTraining())} disabled={heldQuantity > 0 || isBankrupt || isBootstrapping}>下一题</button>
           <button className="neutral-btn" onClick={() => runTimelineAction(advanceHour)} disabled={scenario.mode === 'close' || isBootstrapping}>下一小时</button>
           <button className="neutral-btn" onClick={() => runTimelineAction(advanceDay)} disabled={isBootstrapping}>下一日</button>
         </>
@@ -343,28 +344,35 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
               <IntradayChart points={scenario.visibleIntraday} preClose={scenario.decisionBar.preClose} />
             </div>
 
-            <div className="card quote-card">
-              <h2>交易面板</h2>
+            <div className="card quote-card compact-quote-card">
+              <div className="quote-card-head">
+                <h2>行情概览</h2>
+                <button className="quote-more-btn" onClick={() => setShowMoreQuote((value) => !value)}>{showMoreQuote ? '收起' : '展开更多'}</button>
+              </div>
               <div className="quote-price">
                 <span>{scenario.buyPrice.toFixed(2)}</span>
                 <b className={openChange >= 0 ? 'up-text' : 'down-text'}>{pct(openChange)}</b>
               </div>
-              <div className="metric-grid">
-                <Metric label="持仓成本" value={heldQuantity ? cost.toFixed(2) : '--'} />
-                <Metric label="持仓浮盈亏" value={heldQuantity ? `${(scenario.buyPrice - cost) * heldQuantity >= 0 ? '+' : ''}${((scenario.buyPrice - cost) * heldQuantity).toFixed(2)}` : '--'} valueClass={scenario.buyPrice >= cost ? 'up-text' : 'down-text'} />
+              <div className="metric-grid quote-core-grid">
                 <Metric label="昨收" value={scenario.decisionBar.preClose.toFixed(2)} />
                 <Metric label="今开" value={scenario.decisionBar.open.toFixed(2)} />
-                <Metric label="截至当前最高" value={intradayHigh.toFixed(2)} />
-                <Metric label="截至当前最低" value={intradayLow.toFixed(2)} />
-                <Metric label="截至当前成交量" value={formatVolume(intradayVolume)} />
-                <Metric label="可见日成交量" value={formatVolume(scenario.visibleDaily.at(-1)?.volume ?? 0)} />
-                <Metric label="20日量比" value={`${(intradayVolume / Math.max(volumeMa20, 1)).toFixed(2)}x`} />
-                <Metric label="换手率" value={`${scenario.decisionBar.turnoverRate.toFixed(2)}%`} />
-                <Metric label="PE" value={scenario.base.stock.pe.toFixed(1)} />
-                <Metric label="PB" value={scenario.base.stock.pb.toFixed(1)} />
-                <Metric label="总市值" value={moneyYi(scenario.base.stock.totalMarketCap)} />
-                <Metric label="流通市值" value={moneyYi(scenario.base.stock.floatMarketCap)} />
+                <Metric label="最高" value={intradayHigh.toFixed(2)} />
+                <Metric label="最低" value={intradayLow.toFixed(2)} />
+                <Metric label="成交量" value={formatVolume(intradayVolume)} />
+                <Metric label="量比" value={`${(intradayVolume / Math.max(volumeMa20, 1)).toFixed(2)}x`} />
               </div>
+              {showMoreQuote && (
+                <div className="metric-grid quote-extra-grid">
+                  <Metric label="持仓成本" value={heldQuantity ? cost.toFixed(2) : '--'} />
+                  <Metric label="持仓浮盈亏" value={heldQuantity ? `${(scenario.buyPrice - cost) * heldQuantity >= 0 ? '+' : ''}${((scenario.buyPrice - cost) * heldQuantity).toFixed(2)}` : '--'} valueClass={scenario.buyPrice >= cost ? 'up-text' : 'down-text'} />
+                  <Metric label="可见日成交量" value={formatVolume(scenario.visibleDaily.at(-1)?.volume ?? 0)} />
+                  <Metric label="换手率" value={`${scenario.decisionBar.turnoverRate.toFixed(2)}%`} />
+                  <Metric label="PE" value={scenario.base.stock.pe.toFixed(1)} />
+                  <Metric label="PB" value={scenario.base.stock.pb.toFixed(1)} />
+                  <Metric label="总市值" value={moneyYi(scenario.base.stock.totalMarketCap)} />
+                  <Metric label="流通市值" value={moneyYi(scenario.base.stock.floatMarketCap)} />
+                </div>
+              )}
             </div>
 
             <div className="card decision-card">
@@ -403,7 +411,7 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
                 <button className={sellButtonClass} onClick={() => selectTradeAction('sell')} disabled={isBootstrapping} title={sellLockedByT1 ? '当天买入受 T+1 限制，下一交易日才可卖' : undefined}>模拟卖出</button>
                 <button className="neutral-btn" onClick={() => runTimelineAction(advanceHour)} disabled={scenario.mode === 'close' || isBootstrapping}>下一小时</button>
                 <button className="neutral-btn" onClick={() => runTimelineAction(advanceDay)} disabled={isBootstrapping}>下一交易日</button>
-                <button className="primary-btn" onClick={() => resetTraining()} disabled={heldQuantity > 0 || isBankrupt || isBootstrapping}>下一题</button>
+                <button className="primary-btn next-case-btn" onClick={() => resetTraining()} disabled={heldQuantity > 0 || isBankrupt || isBootstrapping}>下一题</button>
                 {renderTradeSizeOptions()}
               </div>
               <p className="trade-hint">未买入时点击“下一题”，系统会按你选择的未买入理由记录本题；不会提前显示题目难度或未来标签。</p>
