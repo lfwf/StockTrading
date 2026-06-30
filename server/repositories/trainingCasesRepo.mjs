@@ -76,31 +76,29 @@ export async function pickNextTrainingCase(pool, params = {}) {
     filters.push(`id <> $${values.length}`);
   }
   if (tags.length) {
-    values.push(JSON.stringify(tags));
-    filters.push(`tags_json ?| array(SELECT jsonb_array_elements_text($${values.length}::jsonb))`);
+    values.push(tags);
+    filters.push(`tags_json ?| $${values.length}`);
   }
 
   values.push(randomSeed);
   const seedIndex = values.length;
 
-  let query = `
+  let result = await pool.query(`
     SELECT case_json
     FROM training_cases
     WHERE ${filters.join(' AND ')}
     ORDER BY md5(id || $${seedIndex}::text)
     LIMIT 1
-  `;
-  let result = await pool.query(query, values);
+  `, values);
 
   if (!result.rows.length && tags.length) {
-    const fallbackValues = [run.id, phase, randomSeed];
     result = await pool.query(`
       SELECT case_json
       FROM training_cases
       WHERE active = TRUE AND run_id = $1 AND phase = $2
       ORDER BY md5(id || $3::text)
       LIMIT 1
-    `, fallbackValues);
+    `, [run.id, phase, randomSeed]);
   }
 
   const item = result.rows[0]?.case_json ?? null;
