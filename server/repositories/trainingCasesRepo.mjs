@@ -45,7 +45,7 @@ export async function getTrainingCaseSummary(pool) {
   `, [run.id]);
   const tags = await pool.query(`
     SELECT tag, COUNT(*)::int AS count
-    FROM training_cases, jsonb_array_elements_text(tags_json) AS tag
+    FROM training_cases, jsonb_array_elements_text(tags_json) AS tags(tag)
     WHERE active = TRUE AND run_id = $1
     GROUP BY tag
     ORDER BY count DESC
