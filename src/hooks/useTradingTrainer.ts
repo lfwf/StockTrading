@@ -264,7 +264,13 @@ export function useTradingTrainer() {
     }
     const result = sellShares(portfolio, positionSize, scenario.buyPrice, currentDate, currentTime, baseCase.id, baseCase.stock.symbol);
     if (!result.trade) {
-      setTradeMessage(heldQuantity > 0 ? '当前持仓受 T+1 限制，今天买入的股票要到下一交易日才能卖。' : '当前没有可卖持仓。');
+      if (heldQuantity > 0 && availableQuantity === 0) {
+        setTradeMessage('当前持仓受 T+1 限制，今天买入的股票要到下一交易日才能卖。');
+      } else if (availableQuantity > 0) {
+        setTradeMessage('当前卖出比例对应的可卖数量不足一手（100股），请调高卖出比例或继续持有。');
+      } else {
+        setTradeMessage('当前没有可卖持仓。');
+      }
       return;
     }
 
