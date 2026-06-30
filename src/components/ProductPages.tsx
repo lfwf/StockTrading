@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { LocalAccount } from '../hooks/useLocalAccount';
 import type { useTradingTrainer } from '../hooks/useTradingTrainer';
+import type { SimTrade } from '../types';
 import { change, pct } from '../lib/indicators';
 import { type TrainingPhase } from '../domain/trainingPhase';
 
@@ -172,14 +173,110 @@ export function MistakeProfilePage({ trainer, onNavigate }: { trainer: ReturnTyp
   );
 }
 
+function money(value: number): string {
+  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
+}
+
+function tradeSideText(side: SimTrade['side']): string {
+  return side === 'buy' ? '买入' : '卖出';
+}
+
+function buildStockTradeGroups(trades: SimTrade[]) {
+  const groups = trades.reduce<Record<string, { symbol: string; trades: SimTrade[]; realized: number; buyAmount: number; sellAmount: number }>>((acc, trade) => {
+    const item = acc[trade.symbol] ?? { symbol: trade.symbol, trades: [], realized: 0, buyAmount: 0, sellAmount: 0 };
+    item.trades.push(trade);
+    item.realized += trade.realizedPnl ?? 0;
+    if (trade.side === 'buy') item.buyAmount += trade.amount;
+    if (trade.side === 'sell') item.sellAmount += trade.amount;
+    acc[trade.symbol] = item;
+    return acc;
+  }, {});
+  return Object.values(groups).sort((a, b) => b.trades.length - a.trades.length || b.realized - a.realized);
+}
+
+function TradingHistoryPanel({ trainer }: { trainer: ReturnType<typeof useTradingTrainer> }) {
+  const trades = trainer.portfolio.trades;
+  const groups = buildStockTradeGroups(trades);
+  const realized = trades.reduce((sum, trade) => sum + (trade.realizedPnl ?? 0), 0);
+  const buyCount = trades.filter((trade) => trade.side === 'buy').length;
+  const sellCount = trades.filter((trade) => trade.side === 'sell').length;
+  const latestTrades = [...trades].reverse().slice(0, 30);
+
+  return (
+    <div className="account-history-grid">
+      <div className="card profile-card trade-history-card">
+        <h2>交易历史概览</h2>
+        <div className="profile-grid compact-history-stats">
+          <StatCard label="总操作" value={`${trades.length}笔`} desc={`买入 ${buyCount} · 卖出 ${sellCount}`} />
+          <StatCard label="已实现盈亏" value={money(realized)} desc="只统计卖出成交后的已实现收益" />
+          <StatCard label="涉及股票" value={`${groups.length}只`} desc="按股票代码聚合操作记录" />
+        </div>
+        {!trades.length && <p className="muted-text">暂无交易记录。买入或卖出后，这里会按股票展示操作、金额和盈亏。</p>}
+      </div>
+
+      {groups.length > 0 && (
+        <div className="card profile-card stock-history-card">
+          <h2>按股票查看</h2>
+          <div className="stock-history-list">
+            {groups.slice(0, 12).map((group) => (
+              <div key={group.symbol} className="stock-history-item">
+                <div className="stock-history-head">
+                  <b>{group.symbol}</b>
+                  <span className={group.realized >= 0 ? 'up-text' : 'down-text'}>{money(group.realized)}</span>
+                </div>
+                <div className="stock-history-meta">
+                  <span>{group.trades.length} 笔操作</span>
+                  <span>买入 ¥{group.buyAmount.toFixed(2)}</span>
+                  <span>卖出 ¥{group.sellAmount.toFixed(2)}</span>
+                </div>
+                <div className="stock-history-trades">
+                  {[...group.trades].reverse().slice(0, 6).map((trade) => (
+                    <div key={trade.id} className="trade-row">
+                      <span>{trade.date} {trade.time}</span>
+                      <b className={trade.side === 'buy' ? 'up-text' : 'down-text'}>{tradeSideText(trade.side)}</b>
+                      <span>{trade.quantity}股 · ¥{trade.price.toFixed(2)}</span>
+                      <em className={trade.realizedPnl >= 0 ? 'up-text' : 'down-text'}>{trade.side === 'sell' ? money(trade.realizedPnl) : '未实现'}</em>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {latestTrades.length > 0 && (
+        <div className="card profile-card trade-history-card">
+          <h2>最近操作流水</h2>
+          <div className="trade-table">
+            {latestTrades.map((trade) => (
+              <div key={trade.id} className="trade-row full">
+                <span>{trade.date} {trade.time}</span>
+                <b>{trade.symbol}</b>
+                <em className={trade.side === 'buy' ? 'up-text' : 'down-text'}>{tradeSideText(trade.side)}</em>
+                <span>{trade.quantity}股</span>
+                <span>¥{trade.price.toFixed(2)}</span>
+                <span>金额 ¥{trade.amount.toFixed(2)}</span>
+                <strong className={trade.realizedPnl >= 0 ? 'up-text' : 'down-text'}>{trade.side === 'sell' ? money(trade.realizedPnl) : '--'}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AccountPage({
   account,
   onSignIn,
   onSignOut,
+  trainer,
 }: {
   account: LocalAccount | null;
   onSignIn: (email: string, name?: string) => void;
   onSignOut: () => void;
+  trainer: ReturnType<typeof useTradingTrainer>;
 }) {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
@@ -194,6 +291,7 @@ export function AccountPage({
           <p className="muted-text">当前账号只保存在本机浏览器里。后面接入正式登录后，训练记录、错题和统计可以跟账号同步。</p>
           <button className="ghost-btn" onClick={onSignOut}>退出登录</button>
         </div>
+        <TradingHistoryPanel trainer={trainer} />
       </section>
     );
   }
@@ -211,6 +309,7 @@ export function AccountPage({
         <button className="primary-btn" onClick={() => onSignIn(email, name)}>创建本地账号</button>
         <p className="risk-note">当前账号信息只保存在本机浏览器。</p>
       </div>
+      <TradingHistoryPanel trainer={trainer} />
     </section>
   );
 }
