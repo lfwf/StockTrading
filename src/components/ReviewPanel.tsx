@@ -38,7 +38,7 @@ export function ReviewPanel({
         </div>
         {advisor && <AdvisorPanel advisor={advisor} userChoice={userChoice} />}
         <ChecklistSnapshot checklist={checklist} />
-        <p>模拟买入后，先继续推进行情；清仓或放弃后，再查看这道题的结果。</p>
+        <p>模拟买入后，先继续推进行情；清仓后查看这道题的结果。未买入时直接点“下一题”，系统会记录本题的未买入理由。</p>
       </div>
     );
   }
