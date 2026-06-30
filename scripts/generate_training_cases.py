@@ -12,8 +12,10 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import random
 import signal
+import sqlite3
 import time
 from collections import defaultdict
 from dataclasses import dataclass
@@ -24,6 +26,8 @@ from typing import Any
 import akshare as ak
 import baostock as bs
 import pandas as pd
+import psycopg
+from psycopg.rows import dict_row
 
 BAOSTOCK_LOGGED_IN = False
 
@@ -53,6 +57,187 @@ class Candidate:
     future_stats: dict[str, float | None]
 
 
+class MarketStore:
+    def __init__(self, kind: str, conn: Any):
+        self.kind = kind
+        self.conn = conn
+
+    def close(self) -> None:
+        self.conn.close()
+
+    def members(self, universe: str, limit: int) -> list[Member]:
+        if self.kind == "postgres":
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT symbol, name, market, industry
+                      FROM members
+                     WHERE active = TRUE
+                     ORDER BY symbol
+                     LIMIT %s
+                    """,
+                    (limit,),
+                )
+                rows = cur.fetchall()
+        else:
+            rows = self.conn.execute(
+                """
+                SELECT symbol, name, market, industry
+                  FROM members
+                 WHERE active = 1
+                 ORDER BY symbol
+                 LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        if not rows:
+            return []
+        if universe == "hs300":
+            labels = {"沪深300"}
+        elif universe == "csi500":
+            labels = {"中证500"}
+        else:
+            labels = {"沪深300", "中证500"}
+        members = [
+            Member(symbol=row["symbol"], name=row["name"], market=row["market"], industry=row["industry"])
+            for row in rows
+            if not labels or str(row["industry"]) in labels
+        ]
+        return members[:limit]
+
+    def daily(self, symbol: str, start_date: str, end_date: str) -> list[dict[str, Any]]:
+        start = dashed_date(start_date)
+        end = dashed_date(end_date)
+        if self.kind == "postgres":
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT date, open, high, low, close, pre_close, volume, amount, turnover_rate
+                      FROM daily_bars
+                     WHERE symbol = %s AND date >= %s AND date <= %s
+                     ORDER BY date
+                    """,
+                    (symbol, start, end),
+                )
+                rows = cur.fetchall()
+        else:
+            rows = self.conn.execute(
+                """
+                SELECT date, open, high, low, close, pre_close, volume, amount, turnover_rate
+                  FROM daily_bars
+                 WHERE symbol = ? AND date >= ? AND date <= ?
+                 ORDER BY date
+                """,
+                (symbol, start, end),
+            ).fetchall()
+        return [
+            {
+                "date": str(row["date"]),
+                "open": round(number(row["open"]), 3),
+                "high": round(number(row["high"]), 3),
+                "low": round(number(row["low"]), 3),
+                "close": round(number(row["close"]), 3),
+                "preClose": round(number(row["pre_close"]), 3),
+                "volume": int(number(row["volume"], 0)),
+                "amount": int(number(row["amount"], 0)),
+                "turnoverRate": round(number(row["turnover_rate"], 0), 3),
+            }
+            for row in rows
+        ]
+
+    def minute(self, symbol: str, date: str) -> list[dict[str, Any]]:
+        if self.kind == "postgres":
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT time, price, avg_price, volume
+                      FROM minute_bars
+                     WHERE symbol = %s AND date = %s
+                     ORDER BY time
+                    """,
+                    (symbol, date),
+                )
+                rows = cur.fetchall()
+        else:
+            rows = self.conn.execute(
+                """
+                SELECT time, price, avg_price, volume
+                  FROM minute_bars
+                 WHERE symbol = ? AND date = ?
+                 ORDER BY time
+                """,
+                (symbol, date),
+            ).fetchall()
+        return [
+            {
+                "time": str(row["time"])[:5],
+                "price": round(number(row["price"]), 3),
+                "avgPrice": round(number(row["avg_price"]), 3),
+                "volume": int(number(row["volume"], 0)),
+            }
+            for row in rows
+        ]
+
+    def index_daily_proxy(self, start_date: str, end_date: str) -> list[dict[str, Any]]:
+        start = dashed_date(start_date)
+        end = dashed_date(end_date)
+        if self.kind == "postgres":
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT date,
+                           AVG(open) AS open,
+                           AVG(high) AS high,
+                           AVG(low) AS low,
+                           AVG(close) AS close,
+                           SUM(volume) AS volume,
+                           SUM(amount) AS amount,
+                           AVG(turnover_rate) AS turnover_rate
+                      FROM daily_bars
+                     WHERE date >= %s AND date <= %s
+                     GROUP BY date
+                     ORDER BY date
+                    """,
+                    (start, end),
+                )
+                rows = cur.fetchall()
+        else:
+            rows = self.conn.execute(
+                """
+                SELECT date,
+                       AVG(open) AS open,
+                       AVG(high) AS high,
+                       AVG(low) AS low,
+                       AVG(close) AS close,
+                       SUM(volume) AS volume,
+                       SUM(amount) AS amount,
+                       AVG(turnover_rate) AS turnover_rate
+                  FROM daily_bars
+                 WHERE date >= ? AND date <= ?
+                 GROUP BY date
+                 ORDER BY date
+                """,
+                (start, end),
+            ).fetchall()
+        bars: list[dict[str, Any]] = []
+        pre_close = 0.0
+        for row in rows:
+            close = number(row["close"])
+            bars.append({
+                "date": str(row["date"]),
+                "open": round(number(row["open"]), 3),
+                "high": round(number(row["high"]), 3),
+                "low": round(number(row["low"]), 3),
+                "close": round(close, 3),
+                "preClose": round(pre_close or close, 3),
+                "volume": int(number(row["volume"], 0)),
+                "amount": int(number(row["amount"], 0)),
+                "turnoverRate": round(number(row["turnover_rate"], 0), 3),
+            })
+            pre_close = close
+        return bars
+
+
 def call_with_timeout(call: Any, seconds: int) -> Any:
     def raise_timeout(_signum: int, _frame: Any) -> None:
         raise TimeoutError(f"data call timed out after {seconds}s")
@@ -64,6 +249,56 @@ def call_with_timeout(call: Any, seconds: int) -> Any:
     finally:
         signal.alarm(0)
         signal.signal(signal.SIGALRM, previous)
+
+
+def connect_market_store(args: argparse.Namespace) -> MarketStore | None:
+    if args.market_source in {"postgres", "auto"}:
+        try:
+            conn = psycopg.connect(
+                args.database_url,
+                row_factory=dict_row,
+            ) if args.database_url else psycopg.connect(
+                dbname=args.db_name,
+                host=args.db_host,
+                user=args.db_user,
+                row_factory=dict_row,
+            )
+            store = MarketStore("postgres", conn)
+            if store.members(args.universe, args.member_limit):
+                print(f"using local market store: postgresql/{args.db_name}", flush=True)
+                return store
+            store.close()
+        except Exception as exc:
+            if args.market_source == "postgres":
+                raise
+            print(f"local postgres unavailable: {exc}", flush=True)
+
+    if args.market_source in {"sqlite", "auto"}:
+        path = Path(args.market_sqlite)
+        if path.exists():
+            conn = sqlite3.connect(path)
+            conn.row_factory = sqlite3.Row
+            store = MarketStore("sqlite", conn)
+            if store.members(args.universe, args.member_limit):
+                print(f"using local market store: sqlite/{path}", flush=True)
+                return store
+            store.close()
+        elif args.market_source == "sqlite":
+            raise FileNotFoundError(path)
+
+    if args.market_source == "external":
+        return None
+    if args.market_source != "auto":
+        raise RuntimeError(f"no usable local market store for source={args.market_source}")
+    print("local market store unavailable, falling back to AKShare/BaoStock", flush=True)
+    return None
+
+
+def dashed_date(value: str) -> str:
+    text = str(value)
+    if "-" in text:
+        return text
+    return f"{text[0:4]}-{text[4:6]}-{text[6:8]}"
 
 
 def number(value: Any, default: float = 0.0) -> float:
@@ -227,6 +462,14 @@ def fetch_stock_daily(symbol: str, start_date: str, end_date: str, adjust: str) 
     raise RuntimeError(f"无法获取 {symbol} 日线: {last_error}")
 
 
+def load_stock_daily(symbol: str, start_date: str, end_date: str, adjust: str, store: MarketStore | None) -> tuple[list[dict[str, Any]], str]:
+    if store:
+        bars = store.daily(symbol, start_date, end_date)
+        if bars:
+            return bars, store.kind
+    return fetch_stock_daily(symbol, start_date, end_date, adjust), "external"
+
+
 def fetch_index_daily(start_date: str, end_date: str) -> list[dict[str, Any]]:
     attempts = [
         lambda: ak.stock_zh_index_daily_em(symbol="sh000300"),
@@ -244,6 +487,17 @@ def fetch_index_daily(start_date: str, end_date: str) -> list[dict[str, Any]]:
         except Exception as exc:
             last_error = exc
     raise RuntimeError(f"无法获取沪深300指数日线: {last_error}")
+
+
+def load_index_daily(start_date: str, end_date: str, store: MarketStore | None) -> tuple[list[dict[str, Any]], str]:
+    if store:
+        bars = store.daily("000300", start_date, end_date)
+        if bars:
+            return bars, store.kind
+        proxy = store.index_daily_proxy(start_date, end_date)
+        if proxy:
+            return proxy, f"{store.kind}-proxy"
+    return fetch_index_daily(start_date, end_date), "external"
 
 
 def ensure_baostock_login() -> bool:
@@ -369,6 +623,15 @@ def fetch_intraday(symbol: str, date: str, daily_bar: dict[str, Any], period: st
     return synthetic_intraday(daily_bar, seed=sum(ord(ch) for ch in f"{symbol}-{date}")), "synthetic"
 
 
+def load_intraday(symbol: str, date: str, daily_bar: dict[str, Any], period: str, store: MarketStore | None) -> tuple[list[dict[str, Any]], str]:
+    if store:
+        points = store.minute(symbol, date)
+        if len(points) >= 20:
+            return points, store.kind
+        return synthetic_intraday(daily_bar, seed=sum(ord(ch) for ch in f"{symbol}-{date}")), "synthetic"
+    return fetch_intraday(symbol, date, daily_bar, period)
+
+
 def fetch_index_intraday(date: str, daily_bar: dict[str, Any], period: str) -> tuple[list[dict[str, Any]], str]:
     for call in (
         lambda: ak.index_zh_a_hist_min_em(symbol="000300", start_date=f"{date} 09:30:00", end_date=f"{date} 15:00:00", period=period),
@@ -384,6 +647,15 @@ def fetch_index_intraday(date: str, daily_bar: dict[str, Any], period: str) -> t
     if len(points) >= 20:
         return points, "baostock"
     return synthetic_intraday(daily_bar, seed=300300 + int(date.replace("-", ""))), "synthetic"
+
+
+def load_index_intraday(date: str, daily_bar: dict[str, Any], period: str, store: MarketStore | None) -> tuple[list[dict[str, Any]], str]:
+    if store:
+        points = store.minute("000300", date)
+        if len(points) >= 20:
+            return points, store.kind
+        return synthetic_intraday(daily_bar, seed=300300 + int(date.replace("-", ""))), "synthetic"
+    return fetch_index_intraday(date, daily_bar, period)
 
 
 def pct_change(a: float, b: float) -> float:
@@ -551,7 +823,7 @@ def fetch_basic_info(member: Member) -> dict[str, Any]:
     return info
 
 
-def build_case(member: Member, stock_info: dict[str, Any], daily: list[dict[str, Any]], index_daily_by_date: dict[str, dict[str, Any]], candidate: Candidate, phase: str, args: argparse.Namespace, stock_cache: dict[str, tuple[list[dict[str, Any]], str]], index_cache: dict[str, tuple[list[dict[str, Any]], str]]) -> tuple[dict[str, Any], bool, bool]:
+def build_case(member: Member, stock_info: dict[str, Any], daily: list[dict[str, Any]], index_daily_by_date: dict[str, dict[str, Any]], candidate: Candidate, phase: str, args: argparse.Namespace, stock_cache: dict[str, tuple[list[dict[str, Any]], str]], index_cache: dict[str, tuple[list[dict[str, Any]], str]], store: MarketStore | None) -> tuple[dict[str, Any], bool, bool]:
     start = max(0, candidate.index - args.lookback_days)
     end = min(len(daily), candidate.index + args.forward_days + 1)
     sliced_daily = daily[start:end]
@@ -564,8 +836,9 @@ def build_case(member: Member, stock_info: dict[str, Any], daily: list[dict[str,
     def stock_points(bar: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
         date = bar["date"]
         if date not in stock_cache:
-            stock_cache[date] = fetch_intraday(member.symbol, date, bar, args.minute_period)
-            time.sleep(args.sleep)
+            stock_cache[date] = load_intraday(member.symbol, date, bar, args.minute_period, store)
+            if stock_cache[date][1] not in {"postgres", "sqlite", "synthetic"}:
+                time.sleep(args.sleep)
         return stock_cache[date]
 
     def index_points(bar: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
@@ -574,8 +847,9 @@ def build_case(member: Member, stock_info: dict[str, Any], daily: list[dict[str,
         if not index_bar:
             return synthetic_intraday(bar, 300300 + int(date.replace("-", ""))), "synthetic"
         if date not in index_cache:
-            index_cache[date] = fetch_index_intraday(date, index_bar, args.minute_period)
-            time.sleep(args.sleep)
+            index_cache[date] = load_index_intraday(date, index_bar, args.minute_period, store)
+            if index_cache[date][1] not in {"postgres", "sqlite", "synthetic"}:
+                time.sleep(args.sleep)
         return index_cache[date]
 
     full_intraday, stock_source = stock_points(decision_bar)
@@ -605,63 +879,75 @@ def build_case(member: Member, stock_info: dict[str, Any], daily: list[dict[str,
 
 def build_cases(args: argparse.Namespace) -> dict[str, Any]:
     random.seed(args.seed)
-    members = fetch_universe_members(args.universe, args.member_limit)
-    random.shuffle(members)
-    index_daily = fetch_index_daily(args.start_date, args.end_date)
-    index_daily_by_date = {bar["date"]: bar for bar in index_daily}
-    history_cases: list[dict[str, Any]] = []
-    current_cases: list[dict[str, Any]] = []
-    real_stock_intraday = 0
-    real_index_intraday = 0
+    store = connect_market_store(args)
+    try:
+        members = store.members(args.universe, args.member_limit) if store else fetch_universe_members(args.universe, args.member_limit)
+        random.shuffle(members)
+        index_daily, index_source = load_index_daily(args.start_date, args.end_date, store)
+        index_daily_by_date = {bar["date"]: bar for bar in index_daily}
+        history_cases: list[dict[str, Any]] = []
+        current_cases: list[dict[str, Any]] = []
+        real_stock_intraday = 0
+        real_index_intraday = 0
+        local_daily_cases = 0
 
-    for member_no, member in enumerate(members, start=1):
-        try:
-            daily = fetch_stock_daily(member.symbol, args.start_date, args.end_date, args.adjust)
-            if len(daily) < args.lookback_days + args.forward_days + 10:
-                print(f"skip {member.symbol}: daily bars not enough")
-                continue
-            stock_info = fetch_basic_info(member)
-            stock_cache: dict[str, tuple[list[dict[str, Any]], str]] = {}
-            index_cache: dict[str, tuple[list[dict[str, Any]], str]] = {}
+        for member_no, member in enumerate(members, start=1):
+            try:
+                daily, daily_source = load_stock_daily(member.symbol, args.start_date, args.end_date, args.adjust, store)
+                if len(daily) < args.lookback_days + args.forward_days + 10:
+                    print(f"skip {member.symbol}: daily bars not enough")
+                    continue
+                stock_info = fetch_basic_info(member) if args.fetch_basic_info else {"symbol": member.symbol, "name": member.name, "market": member.market, "industry": member.industry, "pe": 0, "pb": 0, "totalMarketCap": 0, "floatMarketCap": 0}
+                stock_cache: dict[str, tuple[list[dict[str, Any]], str]] = {}
+                index_cache: dict[str, tuple[list[dict[str, Any]], str]] = {}
 
-            selected = diversify_candidates(scan_candidates(daily, index_daily_by_date, args), args)
-            for item in selected:
-                case, stock_real, index_real = build_case(member, stock_info, daily, index_daily_by_date, item, "history", args, stock_cache, index_cache)
-                history_cases.append(case)
-                real_stock_intraday += int(stock_real)
-                real_index_intraday += int(index_real)
-                print(f"history {len(history_cases)}: {member.symbol} {member.name} {case['daily'][case['decisionIndex']]['date']} score={item.score} tags={','.join(item.tags[:3])}")
+                selected = diversify_candidates(scan_candidates(daily, index_daily_by_date, args), args)
+                for item in selected:
+                    case, stock_real, index_real = build_case(member, stock_info, daily, index_daily_by_date, item, "history", args, stock_cache, index_cache, store)
+                    case["dataQuality"]["daily"] = daily_source
+                    case["dataQuality"]["indexDaily"] = index_source if index_daily else "missing"
+                    history_cases.append(case)
+                    local_daily_cases += int(daily_source in {"postgres", "sqlite"})
+                    real_stock_intraday += int(stock_real)
+                    real_index_intraday += int(index_real)
+                    print(f"history {len(history_cases)}: {member.symbol} {member.name} {case['daily'][case['decisionIndex']]['date']} score={item.score} tags={','.join(item.tags[:3])}")
+                    if args.max_history_cases and len(history_cases) >= args.max_history_cases:
+                        break
+
+                latest_index = len(daily) - 1
+                current_candidate = classify_context(daily, index_daily_by_date, latest_index, 0) or Candidate(latest_index, 0, ["current"], {})
+                current_candidate = Candidate(latest_index, current_candidate.score, ["current", *current_candidate.tags], {})
+                if not args.current_count or len(current_cases) < args.current_count:
+                    current_case, stock_real, index_real = build_case(member, stock_info, daily, index_daily_by_date, current_candidate, "current", args, stock_cache, index_cache, store)
+                    current_case["dataQuality"]["daily"] = daily_source
+                    current_case["dataQuality"]["indexDaily"] = index_source if index_daily else "missing"
+                    current_cases.append(current_case)
+                    local_daily_cases += int(daily_source in {"postgres", "sqlite"})
+                    real_stock_intraday += int(stock_real)
+                    real_index_intraday += int(index_real)
+                    print(f"current {len(current_cases)}: {member.symbol} {member.name} {current_case['daily'][current_case['decisionIndex']]['date']}")
+
                 if args.max_history_cases and len(history_cases) >= args.max_history_cases:
+                    print("max history case count reached")
                     break
-
-            latest_index = len(daily) - 1
-            current_candidate = classify_context(daily, index_daily_by_date, latest_index, 0) or Candidate(latest_index, 0, ["current"], {})
-            current_candidate = Candidate(latest_index, current_candidate.score, ["current", *current_candidate.tags], {})
-            if not args.current_count or len(current_cases) < args.current_count:
-                current_case, stock_real, index_real = build_case(member, stock_info, daily, index_daily_by_date, current_candidate, "current", args, stock_cache, index_cache)
-                current_cases.append(current_case)
-                real_stock_intraday += int(stock_real)
-                real_index_intraday += int(index_real)
-                print(f"current {len(current_cases)}: {member.symbol} {member.name} {current_case['daily'][current_case['decisionIndex']]['date']}")
-
-            if args.max_history_cases and len(history_cases) >= args.max_history_cases:
-                print("max history case count reached")
-                break
-            if member_no % 20 == 0:
-                print(f"progress {member_no}/{len(members)} history={len(history_cases)} current={len(current_cases)}")
-            time.sleep(args.sleep)
-        except Exception as exc:
-            print(f"skip {member.symbol} {member.name}: {exc}")
-            continue
+                if member_no % 20 == 0:
+                    print(f"progress {member_no}/{len(members)} history={len(history_cases)} current={len(current_cases)}")
+                time.sleep(args.sleep)
+            except Exception as exc:
+                print(f"skip {member.symbol} {member.name}: {exc}")
+                continue
+    finally:
+        if store:
+            store.close()
 
     if not history_cases and not current_cases:
         raise RuntimeError("没有生成任何训练题，请检查行情接口或降低筛选条件")
 
     return {
-        "source": "AKShare + BaoStock",
+        "source": f"local {store.kind if store else 'external'} + AKShare/BaoStock fallback",
         "generatedAt": datetime.now().isoformat(timespec="seconds"),
         "strategy": {"universe": args.universe, "lookbackDays": args.lookback_days, "forwardDays": args.forward_days, "candidateStep": args.candidate_step, "maxCasesPerStock": args.max_cases_per_stock, "minGapDays": args.min_gap_days, "minScore": args.min_score},
-        "quality": {"daily": "real", "totalCases": len(history_cases) + len(current_cases), "historyCases": len(history_cases), "currentCases": len(current_cases), "realStockIntradayCases": real_stock_intraday, "realIndexIntradayCases": real_index_intraday},
+        "quality": {"daily": "real", "totalCases": len(history_cases) + len(current_cases), "historyCases": len(history_cases), "currentCases": len(current_cases), "localDailyCases": local_daily_cases, "realStockIntradayCases": real_stock_intraday, "realIndexIntradayCases": real_index_intraday},
         "cases": history_cases,
         "historyCases": history_cases,
         "currentCases": current_cases,
@@ -675,8 +961,305 @@ def write_json(path: str, data: Any) -> None:
     print(f"wrote {output}")
 
 
+def connect_case_db(args: argparse.Namespace) -> psycopg.Connection[Any]:
+    return psycopg.connect(
+        args.database_url,
+        row_factory=dict_row,
+    ) if args.database_url else psycopg.connect(
+        dbname=args.db_name,
+        host=args.db_host,
+        user=args.db_user,
+        row_factory=dict_row,
+    )
+
+
+def ensure_case_schema(conn: psycopg.Connection[Any]) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS training_case_runs (
+                id BIGSERIAL PRIMARY KEY,
+                generated_at TIMESTAMPTZ NOT NULL,
+                finished_at TIMESTAMPTZ,
+                status TEXT NOT NULL DEFAULT 'running',
+                source TEXT NOT NULL,
+                params_json JSONB NOT NULL,
+                quality_json JSONB NOT NULL,
+                error_text TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS training_cases (
+                id TEXT PRIMARY KEY,
+                phase TEXT NOT NULL CHECK (phase IN ('history', 'current')),
+                symbol TEXT NOT NULL,
+                name TEXT NOT NULL,
+                decision_date DATE NOT NULL,
+                score DOUBLE PRECISION NOT NULL DEFAULT 0,
+                tags_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                case_json JSONB NOT NULL,
+                run_id BIGINT NOT NULL REFERENCES training_case_runs(id),
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_training_cases_active_phase
+                ON training_cases(active, phase, decision_date DESC);
+            CREATE INDEX IF NOT EXISTS idx_training_cases_symbol
+                ON training_cases(symbol);
+            """
+        )
+        cur.execute("ALTER TABLE training_case_runs ADD COLUMN IF NOT EXISTS finished_at TIMESTAMPTZ")
+        cur.execute("ALTER TABLE training_case_runs ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'running'")
+        cur.execute("ALTER TABLE training_case_runs ADD COLUMN IF NOT EXISTS error_text TEXT")
+    conn.commit()
+
+
+def write_cases_db(args: argparse.Namespace, dataset: dict[str, Any]) -> None:
+    conn = connect_case_db(args)
+    try:
+        ensure_case_schema(conn)
+        params = {
+            "universe": args.universe,
+            "startDate": args.start_date,
+            "endDate": args.end_date,
+            "lookbackDays": args.lookback_days,
+            "forwardDays": args.forward_days,
+            "candidateStep": args.candidate_step,
+            "maxCasesPerStock": args.max_cases_per_stock,
+            "maxHistoryCases": args.max_history_cases,
+            "currentCount": args.current_count,
+            "marketSource": args.market_source,
+        }
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO training_case_runs(generated_at, source, params_json, quality_json)
+                VALUES (now(), %s, %s::jsonb, %s::jsonb)
+                RETURNING id
+                """,
+                (
+                    dataset["source"],
+                    json.dumps(params, ensure_ascii=False),
+                    json.dumps(dataset["quality"], ensure_ascii=False),
+                ),
+            )
+            run_id = int(cur.fetchone()["id"])
+            cur.execute("UPDATE training_cases SET active = FALSE")
+            rows = []
+            for case in [*dataset["historyCases"], *dataset["currentCases"]]:
+                decision_bar = case["daily"][case["decisionIndex"]]
+                rows.append((
+                    case["id"],
+                    case.get("phase", "history"),
+                    case["stock"]["symbol"],
+                    case["stock"]["name"],
+                    decision_bar["date"],
+                    float(case.get("score", 0)),
+                    json.dumps(case.get("sceneTags", []), ensure_ascii=False),
+                    json.dumps(case, ensure_ascii=False),
+                    run_id,
+                ))
+            cur.executemany(
+                """
+                INSERT INTO training_cases(
+                    id, phase, symbol, name, decision_date, score, tags_json,
+                    case_json, run_id, active, created_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, TRUE, now())
+                ON CONFLICT(id) DO UPDATE SET
+                    phase = excluded.phase,
+                    symbol = excluded.symbol,
+                    name = excluded.name,
+                    decision_date = excluded.decision_date,
+                    score = excluded.score,
+                    tags_json = excluded.tags_json,
+                    case_json = excluded.case_json,
+                    run_id = excluded.run_id,
+                    active = TRUE,
+                    created_at = excluded.created_at
+                """,
+                rows,
+            )
+        conn.commit()
+        print(f"wrote database training_cases={len(dataset['historyCases']) + len(dataset['currentCases'])}")
+    finally:
+        conn.close()
+
+
+def generation_params(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "universe": args.universe,
+        "startDate": args.start_date,
+        "endDate": args.end_date,
+        "lookbackDays": args.lookback_days,
+        "forwardDays": args.forward_days,
+        "candidateStep": args.candidate_step,
+        "maxCasesPerStock": args.max_cases_per_stock,
+        "maxHistoryCases": args.max_history_cases,
+        "currentCount": args.current_count,
+        "marketSource": args.market_source,
+    }
+
+
+def insert_case_row(conn: psycopg.Connection[Any], run_id: int, case: dict[str, Any]) -> None:
+    decision_bar = case["daily"][case["decisionIndex"]]
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO training_cases(
+                id, phase, symbol, name, decision_date, score, tags_json,
+                case_json, run_id, active, created_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, FALSE, now())
+            ON CONFLICT(id) DO UPDATE SET
+                phase = excluded.phase,
+                symbol = excluded.symbol,
+                name = excluded.name,
+                decision_date = excluded.decision_date,
+                score = excluded.score,
+                tags_json = excluded.tags_json,
+                case_json = excluded.case_json,
+                run_id = excluded.run_id,
+                active = FALSE,
+                created_at = excluded.created_at
+            """,
+            (
+                case["id"],
+                case.get("phase", "history"),
+                case["stock"]["symbol"],
+                case["stock"]["name"],
+                decision_bar["date"],
+                float(case.get("score", 0)),
+                json.dumps(case.get("sceneTags", []), ensure_ascii=False),
+                json.dumps(case, ensure_ascii=False),
+                run_id,
+            ),
+        )
+    conn.commit()
+
+
+def finish_stream_run(conn: psycopg.Connection[Any], run_id: int, status: str, quality: dict[str, Any], error: str = "") -> None:
+    with conn.cursor() as cur:
+        if status == "ok":
+            cur.execute("UPDATE training_cases SET active = FALSE WHERE run_id <> %s", (run_id,))
+            cur.execute("UPDATE training_cases SET active = TRUE WHERE run_id = %s", (run_id,))
+        cur.execute(
+            """
+            UPDATE training_case_runs
+               SET finished_at = now(),
+                   status = %s,
+                   quality_json = %s::jsonb,
+                   error_text = NULLIF(%s, '')
+             WHERE id = %s
+            """,
+            (status, json.dumps(quality, ensure_ascii=False), error, run_id),
+        )
+    conn.commit()
+
+
+def stream_cases_to_db(args: argparse.Namespace) -> dict[str, Any]:
+    random.seed(args.seed)
+    store = connect_market_store(args)
+    conn = connect_case_db(args)
+    ensure_case_schema(conn)
+    source = f"local {store.kind if store else 'external'} + AKShare/BaoStock fallback"
+    empty_quality = {"daily": "real", "totalCases": 0, "historyCases": 0, "currentCases": 0, "localDailyCases": 0, "realStockIntradayCases": 0, "realIndexIntradayCases": 0}
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO training_case_runs(generated_at, status, source, params_json, quality_json)
+            VALUES (now(), 'running', %s, %s::jsonb, %s::jsonb)
+            RETURNING id
+            """,
+            (source, json.dumps(generation_params(args), ensure_ascii=False), json.dumps(empty_quality, ensure_ascii=False)),
+        )
+        run_id = int(cur.fetchone()["id"])
+    conn.commit()
+
+    history_count = 0
+    current_count = 0
+    local_daily_cases = 0
+    real_stock_intraday = 0
+    real_index_intraday = 0
+    try:
+        members = store.members(args.universe, args.member_limit) if store else fetch_universe_members(args.universe, args.member_limit)
+        random.shuffle(members)
+        index_daily, index_source = load_index_daily(args.start_date, args.end_date, store)
+        index_daily_by_date = {bar["date"]: bar for bar in index_daily}
+
+        for member_no, member in enumerate(members, start=1):
+            try:
+                daily, daily_source = load_stock_daily(member.symbol, args.start_date, args.end_date, args.adjust, store)
+                if len(daily) < args.lookback_days + args.forward_days + 10:
+                    print(f"skip {member.symbol}: daily bars not enough", flush=True)
+                    continue
+                stock_info = fetch_basic_info(member) if args.fetch_basic_info else {"symbol": member.symbol, "name": member.name, "market": member.market, "industry": member.industry, "pe": 0, "pb": 0, "totalMarketCap": 0, "floatMarketCap": 0}
+                stock_cache: dict[str, tuple[list[dict[str, Any]], str]] = {}
+                index_cache: dict[str, tuple[list[dict[str, Any]], str]] = {}
+
+                selected = diversify_candidates(scan_candidates(daily, index_daily_by_date, args), args)
+                for item in selected:
+                    case, stock_real, index_real = build_case(member, stock_info, daily, index_daily_by_date, item, "history", args, stock_cache, index_cache, store)
+                    case["dataQuality"]["daily"] = daily_source
+                    case["dataQuality"]["indexDaily"] = index_source if index_daily else "missing"
+                    insert_case_row(conn, run_id, case)
+                    history_count += 1
+                    local_daily_cases += int(daily_source in {"postgres", "sqlite"})
+                    real_stock_intraday += int(stock_real)
+                    real_index_intraday += int(index_real)
+                    print(f"history {history_count}: {member.symbol} {member.name} {case['daily'][case['decisionIndex']]['date']} score={item.score} tags={','.join(item.tags[:3])}", flush=True)
+                    if args.max_history_cases and history_count >= args.max_history_cases:
+                        break
+
+                latest_index = len(daily) - 1
+                current_candidate = classify_context(daily, index_daily_by_date, latest_index, 0) or Candidate(latest_index, 0, ["current"], {})
+                current_candidate = Candidate(latest_index, current_candidate.score, ["current", *current_candidate.tags], {})
+                if not args.current_count or current_count < args.current_count:
+                    current_case, stock_real, index_real = build_case(member, stock_info, daily, index_daily_by_date, current_candidate, "current", args, stock_cache, index_cache, store)
+                    current_case["dataQuality"]["daily"] = daily_source
+                    current_case["dataQuality"]["indexDaily"] = index_source if index_daily else "missing"
+                    insert_case_row(conn, run_id, current_case)
+                    current_count += 1
+                    local_daily_cases += int(daily_source in {"postgres", "sqlite"})
+                    real_stock_intraday += int(stock_real)
+                    real_index_intraday += int(index_real)
+                    print(f"current {current_count}: {member.symbol} {member.name} {current_case['daily'][current_case['decisionIndex']]['date']}", flush=True)
+
+                if args.max_history_cases and history_count >= args.max_history_cases:
+                    print("max history case count reached", flush=True)
+                    break
+                if member_no % 20 == 0:
+                    print(f"progress {member_no}/{len(members)} history={history_count} current={current_count}", flush=True)
+                if not store:
+                    time.sleep(args.sleep)
+            except Exception as exc:
+                print(f"skip {member.symbol} {member.name}: {exc}", flush=True)
+                continue
+
+        if not history_count and not current_count:
+            raise RuntimeError("没有生成任何训练题，请检查行情数据或降低筛选条件")
+
+        quality = {"daily": "real", "totalCases": history_count + current_count, "historyCases": history_count, "currentCases": current_count, "localDailyCases": local_daily_cases, "realStockIntradayCases": real_stock_intraday, "realIndexIntradayCases": real_index_intraday}
+        finish_stream_run(conn, run_id, "ok", quality)
+        return {"source": source, "generatedAt": datetime.now().isoformat(timespec="seconds"), "quality": quality, "historyCases": history_count, "currentCases": current_count}
+    except BaseException as exc:
+        quality = {"daily": "real", "totalCases": history_count + current_count, "historyCases": history_count, "currentCases": current_count, "localDailyCases": local_daily_cases, "realStockIntradayCases": real_stock_intraday, "realIndexIntradayCases": real_index_intraday}
+        finish_stream_run(conn, run_id, "failed", quality, str(exc))
+        raise
+    finally:
+        if store:
+            store.close()
+        conn.close()
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate dense trading trainer cases")
+    parser.add_argument("--market-source", default="auto", choices=["auto", "postgres", "sqlite", "external"], help="prefer local market database before external APIs")
+    parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL", ""))
+    parser.add_argument("--db-name", default=os.environ.get("PGDATABASE", "stock_trading"))
+    parser.add_argument("--db-host", default=os.environ.get("PGHOST", "/var/run/postgresql"))
+    parser.add_argument("--db-user", default=os.environ.get("PGUSER", os.environ.get("USER", "root")))
+    parser.add_argument("--market-sqlite", default="data/market.db")
     parser.add_argument("--start-date", default="20200101")
     parser.add_argument("--end-date", default=datetime.now().strftime("%Y%m%d"))
     parser.add_argument("--adjust", default="qfq", choices=["", "qfq", "hfq"])
@@ -694,6 +1277,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--current-count", type=int, default=0, help="0 means one latest case per processed stock")
     parser.add_argument("--sleep", type=float, default=0.18)
     parser.add_argument("--seed", type=int, default=20260629)
+    parser.add_argument("--fetch-basic-info", action="store_true", help="call AKShare for PE/PB/market-cap enrichment")
+    parser.add_argument("--write-json", action="store_true", help="also write public JSON files for static fallback")
+    parser.add_argument("--skip-db", action="store_true", help="do not write generated cases into PostgreSQL")
     parser.add_argument("--output", default="public/data/training-cases.json")
     parser.add_argument("--history-output", default="public/data/history-cases.json")
     parser.add_argument("--current-output", default="public/data/current-cases.json")
@@ -703,10 +1289,18 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     try:
         args = parse_args()
+        if not args.skip_db and not args.write_json:
+            result = stream_cases_to_db(args)
+            print(f"done: history={result['historyCases']}, current={result['currentCases']}")
+            return
+
         dataset = build_cases(args)
-        write_json(args.output, dataset)
-        write_json(args.history_output, {"source": dataset["source"], "generatedAt": dataset["generatedAt"], "strategy": dataset["strategy"], "quality": dataset["quality"], "cases": dataset["historyCases"]})
-        write_json(args.current_output, {"source": dataset["source"], "generatedAt": dataset["generatedAt"], "strategy": dataset["strategy"], "quality": dataset["quality"], "cases": dataset["currentCases"]})
+        if not args.skip_db:
+            write_cases_db(args, dataset)
+        if args.write_json or args.skip_db:
+            write_json(args.output, dataset)
+            write_json(args.history_output, {"source": dataset["source"], "generatedAt": dataset["generatedAt"], "strategy": dataset["strategy"], "quality": dataset["quality"], "cases": dataset["historyCases"]})
+            write_json(args.current_output, {"source": dataset["source"], "generatedAt": dataset["generatedAt"], "strategy": dataset["strategy"], "quality": dataset["quality"], "cases": dataset["currentCases"]})
         print(f"done: history={len(dataset['historyCases'])}, current={len(dataset['currentCases'])}")
     finally:
         if BAOSTOCK_LOGGED_IN:

@@ -4,8 +4,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 END_DATE="${1:-$(date +%Y%m%d)}"
+PYTHON="${PYTHON:-.venv/bin/python}"
 
-python scripts/sync_akshare.py \
+"$PYTHON" scripts/sync_akshare.py \
+  --market-source postgres \
   --start-date 20200101 \
   --end-date "$END_DATE" \
   --adjust qfq \
@@ -17,4 +19,5 @@ python scripts/sync_akshare.py \
   --candidate-step 5 \
   --max-cases-per-stock 12 \
   --max-history-cases 0 \
-  --current-count 0
+  --current-count 0 \
+  --sleep 0

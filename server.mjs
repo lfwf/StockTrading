@@ -51,6 +51,37 @@ await pool.query(`
     created_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_trades_session_id_id ON trades(session_id, id DESC);
+
+  CREATE TABLE IF NOT EXISTS training_case_runs (
+    id BIGSERIAL PRIMARY KEY,
+    generated_at TIMESTAMPTZ NOT NULL,
+    finished_at TIMESTAMPTZ,
+    status TEXT NOT NULL DEFAULT 'running',
+    source TEXT NOT NULL,
+    params_json JSONB NOT NULL,
+    quality_json JSONB NOT NULL,
+    error_text TEXT
+  );
+  CREATE TABLE IF NOT EXISTS training_cases (
+    id TEXT PRIMARY KEY,
+    phase TEXT NOT NULL CHECK (phase IN ('history', 'current')),
+    symbol TEXT NOT NULL,
+    name TEXT NOT NULL,
+    decision_date DATE NOT NULL,
+    score DOUBLE PRECISION NOT NULL DEFAULT 0,
+    tags_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    case_json JSONB NOT NULL,
+    run_id BIGINT NOT NULL REFERENCES training_case_runs(id),
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_training_cases_active_phase
+    ON training_cases(active, phase, decision_date DESC);
+  CREATE INDEX IF NOT EXISTS idx_training_cases_symbol
+    ON training_cases(symbol);
+  ALTER TABLE training_case_runs ADD COLUMN IF NOT EXISTS finished_at TIMESTAMPTZ;
+  ALTER TABLE training_case_runs ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'running';
+  ALTER TABLE training_case_runs ADD COLUMN IF NOT EXISTS error_text TEXT;
 `);
 
 const json = (res, status, value) => {
@@ -77,6 +108,51 @@ async function upsertSession(body) {
 }
 
 async function handleApi(req, res, url) {
+  if (req.method === 'GET' && url.pathname === '/api/training-cases') {
+    const latestRun = await pool.query(`
+      SELECT id, generated_at, source, quality_json
+      FROM training_case_runs
+      WHERE status = 'ok'
+      ORDER BY id DESC
+      LIMIT 1
+    `);
+    const run = latestRun.rows[0] ?? null;
+    if (!run) {
+      return json(res, 404, { error: 'No training cases generated' });
+    }
+    const cases = await pool.query(`
+      SELECT phase, case_json
+      FROM training_cases
+      WHERE active = TRUE AND run_id = $1
+      ORDER BY phase, decision_date DESC, score DESC
+    `, [run.id]);
+    const historyCases = [];
+    const currentCases = [];
+    for (const row of cases.rows) {
+      if (row.phase === 'current') currentCases.push(row.case_json);
+      else historyCases.push(row.case_json);
+    }
+    if (!historyCases.length && !currentCases.length) {
+      return json(res, 404, { error: 'No active training cases generated' });
+    }
+    const generatedAt = run?.generated_at instanceof Date ? run.generated_at.toISOString() : (run?.generated_at ?? new Date().toISOString());
+    return json(res, 200, {
+      source: run?.source ?? 'PostgreSQL training_cases',
+      generatedAt,
+      quality: run?.quality_json ?? {
+        daily: 'real',
+        totalCases: historyCases.length + currentCases.length,
+        historyCases: historyCases.length,
+        currentCases: currentCases.length,
+        realStockIntradayCases: 0,
+        realIndexIntradayCases: 0,
+      },
+      cases: historyCases,
+      historyCases,
+      currentCases,
+    });
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/market/intraday') {
     const symbol = url.searchParams.get('symbol') ?? '';
     const date = url.searchParams.get('date') ?? '';
