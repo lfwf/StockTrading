@@ -127,7 +127,7 @@ export function MistakeProfilePage({ trainer, onNavigate }: { trainer: ReturnTyp
         <div>
           <p className="eyebrow">错题与记录</p>
           <h1>看看最近哪些判断偏差比较大</h1>
-          <p>这里会保存回撤较大、亏损偏多，或者放弃后明显上涨的样本。数量多了以后，可以看出自己更容易在哪些场景出问题。</p>
+          <p>这里会保存回撤较大、亏损偏多，或者未买入后明显上涨的样本。数量多了以后，可以看出自己更容易在哪些场景出问题。</p>
         </div>
         <button className="primary-btn" onClick={() => onNavigate('history', 'history')}>继续训练</button>
       </div>
@@ -155,7 +155,7 @@ export function MistakeProfilePage({ trainer, onNavigate }: { trainer: ReturnTyp
           <div className="mistake-list profile-mistakes">
             {trainer.mistakes.slice(0, 8).map((item) => (
               <div key={item.id} className="mistake-item">
-                <b>{item.action === 'buy' ? '买入错题' : '放弃错题'} · {item.symbol}</b>
+                <b>{item.action === 'buy' ? '买入错题' : '未买入错题'} · {item.symbol}</b>
                 <span>{item.reason}</span>
                 <em>{item.tags.slice(0, 4).join(' / ')}</em>
               </div>
