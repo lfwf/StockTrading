@@ -27,10 +27,8 @@
 - 10 万元连续模拟账户，按 100 股整数手分批买卖
 - 遵守 A 股 T+1：当天买入的持仓下一交易日才可卖出
 - 可按下一小时或下一交易日推进真实 5 分钟行情
-- 清仓后进入下一题，资金与累计收益跨题保留
-- PostgreSQL 后台记录每笔成交、已实现盈亏与账户权益
-- AKShare + BaoStock 数据同步脚本：生成历史题库和当前盘面题库
-- 前端自动加载同步数据；如果数据文件不存在，自动回退到模拟数据
+- PostgreSQL 记录行情库、训练题库、成交、账户权益
+- 前端按需请求下一题，不再一次性加载全量题库
 - 移动端适配：小屏幕自动切换为单列布局
 
 ## 运行前端
@@ -57,7 +55,34 @@ user: 当前运行用户
 
 也可以通过 `DATABASE_URL`、`PGDATABASE`、`PGHOST`、`PGUSER` 覆盖连接配置。
 
-## 使用 AKShare + BaoStock 生成训练数据
+## 数据库优先的数据架构
+
+当前数据流已经调整为数据库优先：
+
+```text
+AKShare / BaoStock / 其他行情源
+  ↓
+scripts/sync_market_db.py
+  ↓
+PostgreSQL: members / daily_bars / minute_bars
+  ↓
+scripts/generate_cases_from_db.py
+  ↓
+PostgreSQL: training_case_runs / training_cases
+  ↓
+Node API: /api/training-cases/next
+  ↓
+React 前端按需加载一道题
+```
+
+原则：
+
+- 外部行情接口只出现在行情同步阶段。
+- 题库生成只读取 PostgreSQL 行情库，不再在线请求 AKShare/BaoStock。
+- 前端不再下载全量题库，只拿少量初始样本，点击下一题时请求 `/api/training-cases/next`。
+- 分钟线推进从 `minute_bars` 查询，不再每次 HTTP 请求启动 Python 子进程。
+
+## 初始化与每日更新
 
 先安装 Python 依赖：
 
@@ -65,16 +90,25 @@ user: 当前运行用户
 pip install -r requirements.txt
 ```
 
-然后生成数据：
+首次同步行情库：
 
 ```bash
-python scripts/sync_akshare.py \
-  --start-date 20200101 \
-  --end-date 20260629 \
-  --adjust qfq \
-  --minute-period 5 \
+bash scripts/run_market_sync.sh \
   --universe csi800 \
-  --member-limit 300 \
+  --member-limit 800 \
+  --daily-start 19900101 \
+  --minute-start 20200101 \
+  --end-date 20260629 \
+  --minute-frequency 5
+```
+
+从数据库生成训练题库：
+
+```bash
+python scripts/generate_cases_from_db.py \
+  --start-date 2020-01-01 \
+  --end-date 2026-06-29 \
+  --member-limit 800 \
   --lookback-days 140 \
   --forward-days 20 \
   --candidate-step 5 \
@@ -83,30 +117,32 @@ python scripts/sync_akshare.py \
   --current-count 0
 ```
 
-生成结果会写入：
+也可以直接执行每日流水线：
 
-```text
-public/data/training-cases.json
-public/data/history-cases.json
-public/data/current-cases.json
+```bash
+bash scripts/update_training_cases_daily.sh
 ```
 
-前端启动后会读取 `public/data/training-cases.json`。其中：
+指定截止日期：
 
-- `historyCases`：历史盲盘题库。一只股票会扫描多个候选日期，按场景特征评分、去重后生成多道题。
-- `currentCases`：当前盘面题库。每只股票取最新交易日生成一道当前盘面题。
-- `cases`：兼容旧前端字段，等同于 `historyCases`。
+```bash
+bash scripts/update_training_cases_daily.sh 20260629
+```
 
-页面顶部“数据源”显示 `AKShare + BaoStock` 时，说明已经使用真实行情生成训练题；如果显示“模拟数据”，说明还没有生成数据文件或文件读取失败。
+建议放到服务器定时任务里，在 A 股收盘、数据源完成更新后执行，例如每天 18:30：
+
+```cron
+30 18 * * 1-5 cd /path/to/StockTrading && bash scripts/update_training_cases_daily.sh >> logs/daily-pipeline.log 2>&1
+```
 
 ## 题库生成算法
 
-当前脚本不再是一只股票只随机生成一道题，而是按下面的方式生成：
+`generate_cases_from_db.py` 不直接请求行情接口，只读取数据库中的 `members / daily_bars / minute_bars`。
 
 ```text
-股票池
+members 股票池
   ↓
-逐只股票拉取完整日线
+读取每只股票 daily_bars
   ↓
 扫描多个候选决策日
   ↓
@@ -118,28 +154,55 @@ public/data/current-cases.json
   ↓
 同一股票按最小间隔和标签上限去重
   ↓
-生成历史题库 historyCases
+写入 training_cases(history)
   ↓
-取每只股票最新交易日生成 currentCases
+取每只股票最新交易日写入 training_cases(current)
 ```
 
-历史题库每道题只保留决策日前后的必要窗口，默认保留：
+历史题默认保留：
 
 - 决策日前 `140` 个交易日，用于看日线、周线、月线和大盘环境
 - 决策日后 `20` 个交易日，用于复盘买入后的收益和回撤
 
-这样既能尽量利用每只股票的长期数据，又避免每道题重复塞入整段多年日线导致 JSON 过大。
+当前盘面题默认每只股票生成一道，取该股票 `daily_bars` 里的最新交易日。
+
+## 主要 API
+
+```text
+GET /api/training-cases/summary
+GET /api/training-cases/next?phase=history&presets=breakout
+GET /api/training-cases/next?phase=current
+GET /api/training-cases/:id
+GET /api/market/intraday?symbol=600519&date=2026-06-29
+GET /api/market/status
+```
+
+兼容接口：
+
+```text
+GET /api/training-cases
+```
+
+该接口现在只返回每个阶段少量初始样本，不再返回全量题库。
 
 ## 数据同步参数
 
-常用参数：
+行情同步常用参数：
 
-- `--start-date`：行情开始日期，格式 `YYYYMMDD`
-- `--end-date`：行情结束日期，格式 `YYYYMMDD`
-- `--adjust`：复权方式，默认 `qfq`，即前复权
-- `--minute-period`：分钟线周期，支持 `1/5/15/30/60`
+- `--daily-start`：日线补齐开始日期，格式 `YYYYMMDD`
+- `--minute-start`：分钟线补齐开始日期，格式 `YYYYMMDD`
+- `--end-date`：同步截止日期，格式 `YYYYMMDD`
 - `--universe`：股票池，支持 `hs300/csi500/csi800`
-- `--member-limit`：尝试拉取多少只股票
+- `--member-limit`：尝试同步多少只股票
+- `--minute-frequency`：分钟线周期，支持 `5/15/30/60`
+- `--daily-only`：只同步日线
+- `--minute-only`：只同步分钟线
+- `--symbols`：只同步指定股票，例如 `600519,300750`
+
+题库生成常用参数：
+
+- `--start-date`：题库生成使用的行情开始日期，格式 `YYYY-MM-DD`
+- `--end-date`：题库生成使用的行情结束日期，格式 `YYYY-MM-DD`
 - `--lookback-days`：每道题保留多少根决策日前日线
 - `--forward-days`：历史题保留多少根决策日后日线
 - `--candidate-step`：每隔多少个交易日扫描一个候选点
@@ -150,58 +213,16 @@ public/data/current-cases.json
 - `--max-history-cases`：历史题库全局上限，`0` 表示不限制
 - `--current-count`：当前盘面题库上限，`0` 表示每只成功处理的股票生成一道
 
-## 每日更新当前盘面题库
+## 兼容说明
 
-已经提供脚本：
-
-```bash
-scripts/update_training_cases_daily.sh
-```
-
-可以手动执行：
+`scripts/sync_akshare.py` 仍然保留为旧入口，但正式流程应优先使用：
 
 ```bash
-bash scripts/update_training_cases_daily.sh
+scripts/run_market_sync.sh
+python scripts/generate_cases_from_db.py
 ```
 
-也可以指定截止日期：
-
-```bash
-bash scripts/update_training_cases_daily.sh 20260629
-```
-
-建议放到服务器定时任务里，在 A 股收盘、数据源完成更新后执行，例如每天 18:30：
-
-```cron
-30 18 * * 1-5 cd /path/to/StockTrading && bash scripts/update_training_cases_daily.sh >> logs/case-sync.log 2>&1
-```
-
-执行后会覆盖 `public/data/training-cases.json`，其中 `currentCases` 会刷新为每只股票最新交易日。
-
-## 当前数据策略
-
-数据流：
-
-```text
-AKShare / 新浪（日线）+ BaoStock（5分钟线）
-  ↓
-scripts/sync_akshare.py
-  ↓
-public/data/training-cases.json
-  ↓
-React 前端盲盘训练
-```
-
-脚本会尝试获取：
-
-- 沪深300 / 中证500 / 中证800 股票池
-- 个股日线
-- 沪深300指数日线
-- 个股历史分钟线
-- 沪深300指数分钟线
-- 个股基础信息，例如 PE、PB、市值
-
-注意：BaoStock 免费接口支持 5/15/30/60 分钟线，不支持 1 分钟线。实测 5 分钟数据从 2020 年开始有覆盖，但不同股票的实际覆盖可能不同。如果历史日期取不到真实分钟线，脚本会用当天 OHLC 生成分时兜底曲线，并在数据质量字段中标记为 `synthetic`。
+静态 JSON 文件 `public/data/training-cases.json` 只作为兼容兜底，不再是主要数据来源。
 
 ## 后续上线建议
 
