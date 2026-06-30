@@ -4,6 +4,7 @@ import type { PositionSize, TimeMode } from '../types';
 import type { useTradingTrainer } from '../hooks/useTradingTrainer';
 import { getModeLabel } from '../lib/market';
 import { change, formatVolume, moneyYi, pct } from '../lib/indicators';
+import { BUY_REASONS, NO_BUY_REASONS, STOP_LOSS_PLANS } from '../domain/trainingIntent';
 import { ChartHeader, Metric, StatusItem } from './common';
 import { IntradayChart, KLineChart } from './Charts';
 import { DecisionChecklist } from './DecisionChecklist';
@@ -47,6 +48,13 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
     setShowDate,
     positionSize,
     setPositionSize,
+    buyReason,
+    setBuyReason,
+    noBuyReason,
+    setNoBuyReason,
+    stopLossPlan,
+    setStopLossPlan,
+    tradeStateText,
     review,
     advisor,
     userChoice,
@@ -77,7 +85,6 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
     resetTraining,
     switchMode,
     buy,
-    skip,
     sell,
     advanceHour,
     advanceDay,
@@ -229,9 +236,9 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
     <section className={actionBarHidden ? 'mobile-action-bar hide-while-scroll' : 'mobile-action-bar'}>
       <button className="buy-btn" onClick={() => runMobileAction(buy)} disabled={isBankrupt || isBootstrapping}>买入</button>
       <button className={sellButtonClass} onClick={() => runMobileAction(sell)} disabled={isBootstrapping} title={sellLockedByT1 ? '当天买入受 T+1 限制，下一交易日才可卖' : undefined}>卖出</button>
-      <button className="skip-btn" onClick={() => runMobileAction(skip)} disabled={isBootstrapping}>放弃</button>
       <button className="neutral-btn" onClick={() => runTimelineAction(advanceHour)} disabled={scenario.mode === 'close' || isBootstrapping}>下一小时</button>
       <button className="neutral-btn" onClick={() => runTimelineAction(advanceDay)} disabled={isBootstrapping}>下一日</button>
+      <button className="primary-btn" onClick={() => runMobileAction(() => resetTraining())} disabled={heldQuantity > 0 || isBankrupt || isBootstrapping}>下一题</button>
     </section>
   );
 
@@ -243,6 +250,7 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
           <StatusItem label="总资产" value={`¥${currentEquity.toFixed(2)}`} highlight />
           <StatusItem label="可用现金" value={`¥${portfolio.cash.toFixed(2)}`} />
           <StatusItem label="持仓 / 可卖" value={`${heldQuantity} / ${availableQuantity} 股`} />
+          <StatusItem label="状态" value={tradeStateText} highlight />
           <StatusItem label="股票" value={showStock ? `${scenario.base.stock.name} ${scenario.base.stock.symbol}` : `已隐藏 · ${scenario.base.stock.industry}`} />
           <StatusItem label="日期" value={showDate ? scenario.visibleUntil : '已隐藏'} />
           <div className="status-mode">
@@ -320,8 +328,24 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
             </div>
 
             <div className="card decision-card">
-              <h2>买前检查清单</h2>
+              <h2>买前计划</h2>
               <DecisionChecklist value={checklist} onChange={setChecklist} />
+              <div className="control-block trade-control">
+                <label>买入理由</label>
+                <div className="intent-options">
+                  {BUY_REASONS.map((item) => (
+                    <button key={item.key} className={buyReason === item.key ? 'intent active' : 'intent'} onClick={() => setBuyReason(item.key)} title={item.desc}>{item.label}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="control-block trade-control">
+                <label>未买入理由（点击下一题时记录）</label>
+                <div className="intent-options">
+                  {NO_BUY_REASONS.map((item) => (
+                    <button key={item.key} className={noBuyReason === item.key ? 'intent active' : 'intent'} onClick={() => setNoBuyReason(item.key)} title={item.desc}>{item.label}</button>
+                  ))}
+                </div>
+              </div>
               <div className="control-block trade-control">
                 <label>本次使用比例</label>
                 <div className="segmented">
@@ -331,17 +355,25 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
                 </div>
               </div>
               <div className="control-block trade-control">
-                <label>成交规则</label>
-                <div className="trade-rule">100股整数手 · 当日买入次日可卖</div>
+                <label>计划止损</label>
+                <div className="segmented">
+                  {STOP_LOSS_PLANS.map((item) => (
+                    <button key={item} className={stopLossPlan === item ? 'active' : ''} onClick={() => setStopLossPlan(item)}>{item}%</button>
+                  ))}
+                </div>
               </div>
-              <div className="decision-actions">
+              <div className="control-block trade-control">
+                <label>持仓状态</label>
+                <div className="trade-rule">{tradeStateText} · 100股整数手 · 当日买入次日可卖</div>
+              </div>
+              <div className="decision-actions compact-actions">
                 <button className="buy-btn" onClick={buy} disabled={isBankrupt || isBootstrapping}>模拟买入 {positionSize}%现金</button>
                 <button className={sellButtonClass} onClick={sell} disabled={isBootstrapping} title={sellLockedByT1 ? '当天买入受 T+1 限制，下一交易日才可卖' : undefined}>模拟卖出 {positionSize}%可卖</button>
                 <button className="neutral-btn" onClick={() => runTimelineAction(advanceHour)} disabled={scenario.mode === 'close' || isBootstrapping}>下一小时</button>
                 <button className="neutral-btn" onClick={() => runTimelineAction(advanceDay)} disabled={isBootstrapping}>下一交易日</button>
-                <button className="skip-btn" onClick={skip} disabled={isBootstrapping}>放弃本题</button>
                 <button className="primary-btn" onClick={() => resetTraining()} disabled={heldQuantity > 0 || isBankrupt || isBootstrapping}>下一题</button>
               </div>
+              <p className="trade-hint">未买入时点击“下一题”，系统会按你选择的未买入理由记录本题；不会提前显示题目难度或未来标签。</p>
               {sellLockedByT1 && <p className="trade-hint">当前持仓为当天买入，卖出按钮置灰提示；点击后会显示 T+1 限制说明。</p>}
               {tradeMessage && <p className="trade-message">{tradeMessage}</p>}
             </div>
