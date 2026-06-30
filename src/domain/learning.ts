@@ -78,12 +78,12 @@ export const EDUCATION_BY_TAG: Record<string, { title: string; body: string; che
   },
   可能错过机会: {
     title: '可能错过机会',
-    body: '放弃后上涨，不一定代表你错了，但说明这道题值得再看一次。重点是当时有没有漏掉明显信号。',
-    check: '下次复查放弃时，有没有忽略放量、突破、相对大盘更强这些线索。',
+    body: '未买入后上涨，不一定代表你错了，但说明这道题值得再看一次。重点是当时有没有漏掉明显信号。',
+    check: '下次复查未买入时，有没有忽略放量、突破、相对大盘更强这些线索。',
   },
   放弃正确: {
-    title: '这次放弃有效',
-    body: '放弃后下跌，说明这次没有被盘面波动带着走。可以把当时让你放弃的信号记下来。',
+    title: '这次未买入有效',
+    body: '未买入后下跌，说明这次没有被盘面波动带着走。可以把当时让你跳过的信号记下来。',
     check: '下次遇到类似结构，可以对照这次的判断。',
   },
 };
@@ -145,8 +145,10 @@ export function createMistakeItem(params: {
   mode: TimeMode;
   action: DecisionChoice;
   result: ReviewResult;
+  reason?: string;
+  extraTags?: string[];
 }): MistakeItem {
-  const { baseCase, mode, action, result } = params;
+  const { baseCase, mode, action, result, reason, extraTags = [] } = params;
   return {
     id: `${baseCase.id}-${mode}-${action}`,
     caseId: baseCase.id,
@@ -155,10 +157,10 @@ export function createMistakeItem(params: {
     mode,
     action,
     date: baseCase.daily[baseCase.decisionIndex]?.date ?? '',
-    tags: result.tags,
+    tags: [...new Set([...result.tags, ...extraTags])],
     ret5: result.ret5,
     maxDrawdown: result.maxDrawdown,
-    reason: action === 'buy' ? '买入后回撤或亏损偏大' : '放弃后上涨较多',
+    reason: reason ?? (action === 'buy' ? '买入后回撤或亏损偏大' : '未买入后上涨较多'),
     createdAt: new Date().toISOString(),
   };
 }
