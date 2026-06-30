@@ -35,6 +35,47 @@ def connect(args: argparse.Namespace) -> psycopg.Connection[Any]:
     return psycopg.connect(dbname=args.db_name, host=args.db_host, user=args.db_user, row_factory=dict_row)
 
 
+def ensure_case_schema(conn: psycopg.Connection[Any]) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS training_case_runs (
+                id BIGSERIAL PRIMARY KEY,
+                generated_at TIMESTAMPTZ NOT NULL,
+                finished_at TIMESTAMPTZ,
+                status TEXT NOT NULL DEFAULT 'running',
+                source TEXT NOT NULL,
+                params_json JSONB NOT NULL,
+                quality_json JSONB NOT NULL,
+                error_text TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS training_cases (
+                id TEXT PRIMARY KEY,
+                phase TEXT NOT NULL CHECK (phase IN ('history', 'current')),
+                symbol TEXT NOT NULL,
+                name TEXT NOT NULL,
+                decision_date DATE NOT NULL,
+                score DOUBLE PRECISION NOT NULL DEFAULT 0,
+                tags_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                case_json JSONB NOT NULL,
+                run_id BIGINT NOT NULL REFERENCES training_case_runs(id),
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_training_cases_active_phase
+                ON training_cases(active, phase, decision_date DESC);
+            CREATE INDEX IF NOT EXISTS idx_training_cases_symbol
+                ON training_cases(symbol);
+            CREATE INDEX IF NOT EXISTS idx_training_cases_active_phase_score
+                ON training_cases(active, phase, score DESC, decision_date DESC);
+            CREATE INDEX IF NOT EXISTS idx_training_cases_tags_json
+                ON training_cases USING GIN(tags_json);
+            """
+        )
+    conn.commit()
+
+
 def as_date_text(value: Any) -> str:
     if isinstance(value, date):
         return value.isoformat()
@@ -417,6 +458,7 @@ def main() -> None:
     random.seed(args.seed)
     params = vars(args).copy()
     conn = connect(args)
+    ensure_case_schema(conn)
     run_id = begin_case_run(conn, params)
     history_count = 0
     current_count = 0
