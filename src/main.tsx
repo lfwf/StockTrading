@@ -14,6 +14,7 @@ import './mobile-polish.css';
 import './mobile-final-polish.css';
 import './mobile-screen-refine.css';
 import './pc-workspace-refine.css';
+import './account-page-redesign.css';
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
