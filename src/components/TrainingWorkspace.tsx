@@ -38,21 +38,12 @@ function syncMobileActionBarViewport() {
   document.documentElement.style.setProperty('--mobile-viewport-height', `${Math.round(viewport.height)}px`);
 }
 
-function QuoteRow({ label, value, valueClass = '' }: { label: string; value: string; valueClass?: string }) {
-  return (
-    <div className="quote-list-row">
-      <span>{label}</span>
-      <b className={valueClass}>{value}</b>
-    </div>
-  );
-}
-
 export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useTradingTrainer> }) {
   const [mobileChartTab, setMobileChartTab] = useState<MobileChartTab>('daily');
   const [actionBarHidden, setActionBarHidden] = useState(false);
   const [pendingTradeAction, setPendingTradeAction] = useState<PendingTradeAction>(null);
   const [showMoreQuote, setShowMoreQuote] = useState(false);
-  const [isChartFullscreen, setIsChartFullscreen] = useState(false);
+  const [chartFullscreen, setChartFullscreen] = useState(false);
   const {
     scenario,
     showStock,
@@ -143,10 +134,16 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
   }, [scenario.base.id, currentTime, heldQuantity]);
 
   useEffect(() => {
-    document.body.classList.toggle('chart-fullscreen-open', isChartFullscreen);
-    syncMobileActionBarViewport();
-    return () => document.body.classList.remove('chart-fullscreen-open');
-  }, [isChartFullscreen]);
+    document.body.classList.toggle('chart-fullscreen-open', chartFullscreen);
+    function closeWithEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setChartFullscreen(false);
+    }
+    window.addEventListener('keydown', closeWithEscape);
+    return () => {
+      document.body.classList.remove('chart-fullscreen-open');
+      window.removeEventListener('keydown', closeWithEscape);
+    };
+  }, [chartFullscreen]);
 
   useEffect(() => {
     let showTimer: number | undefined;
@@ -160,7 +157,7 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
     }
 
     function hideWhileScrolling() {
-      if (window.innerWidth > 760 || isChartFullscreen) return;
+      if (window.innerWidth > 760 || chartFullscreen) return;
       setActionBarHidden(true);
       scheduleShow();
     }
@@ -184,7 +181,7 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
       window.removeEventListener('touchend', showAfterTouchEnd);
       window.visualViewport?.removeEventListener('scroll', hideWhileScrolling);
     };
-  }, [isChartFullscreen]);
+  }, [chartFullscreen]);
 
   function toggleRevealInfo() {
     const shouldShow = !(showStock && showDate);
@@ -324,14 +321,18 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
           <button className="status-toggle ghost-btn" onClick={toggleRevealInfo}>显示/隐藏</button>
         </section>
 
-        <section className={isChartFullscreen ? 'mobile-chart-card card chart-card fullscreen' : 'mobile-chart-card card chart-card'}>
-          <div className="mobile-chart-tabs">
-            {MOBILE_CHART_TABS.map((item) => (
-              <button key={item.key} className={mobileChartTab === item.key ? 'active' : ''} onClick={() => setMobileChartTab(item.key)}>
-                {item.label}
-              </button>
-            ))}
-            <button className="chart-fullscreen-btn" onClick={() => setIsChartFullscreen((value) => !value)}>{isChartFullscreen ? '退出' : '全屏'}</button>
+        <section className={chartFullscreen ? 'mobile-chart-card card chart-card chart-fullscreen' : 'mobile-chart-card card chart-card'}>
+          <div className="mobile-chart-toolbar">
+            <div className="mobile-chart-tabs">
+              {MOBILE_CHART_TABS.map((item) => (
+                <button key={item.key} className={mobileChartTab === item.key ? 'active' : ''} onClick={() => setMobileChartTab(item.key)}>
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <button className="chart-fullscreen-btn" onClick={() => setChartFullscreen((value) => !value)}>
+              {chartFullscreen ? '退出' : '全屏'}
+            </button>
           </div>
           <div className="mobile-chart-body">{renderMobileChart()}</div>
         </section>
@@ -366,28 +367,28 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
                 <h2>行情概览</h2>
                 <button className="quote-more-btn" onClick={() => setShowMoreQuote((value) => !value)}>{showMoreQuote ? '收起' : '展开更多'}</button>
               </div>
-              <div className="quote-price">
+              <div className="quote-price compact-price">
                 <span>{scenario.buyPrice.toFixed(2)}</span>
                 <b className={openChange >= 0 ? 'up-text' : 'down-text'}>{pct(openChange)}</b>
               </div>
               <div className="quote-list quote-core-list">
-                <QuoteRow label="昨收" value={scenario.decisionBar.preClose.toFixed(2)} />
-                <QuoteRow label="今开" value={scenario.decisionBar.open.toFixed(2)} />
-                <QuoteRow label="最高" value={intradayHigh.toFixed(2)} />
-                <QuoteRow label="最低" value={intradayLow.toFixed(2)} />
-                <QuoteRow label="成交量" value={formatVolume(intradayVolume)} />
-                <QuoteRow label="量比" value={`${(intradayVolume / Math.max(volumeMa20, 1)).toFixed(2)}x`} />
+                <div><span>昨收</span><b>{scenario.decisionBar.preClose.toFixed(2)}</b></div>
+                <div><span>今开</span><b>{scenario.decisionBar.open.toFixed(2)}</b></div>
+                <div><span>最高</span><b>{intradayHigh.toFixed(2)}</b></div>
+                <div><span>最低</span><b>{intradayLow.toFixed(2)}</b></div>
+                <div><span>成交量</span><b>{formatVolume(intradayVolume)}</b></div>
+                <div><span>量比</span><b>{`${(intradayVolume / Math.max(volumeMa20, 1)).toFixed(2)}x`}</b></div>
               </div>
               {showMoreQuote && (
                 <div className="quote-list quote-extra-list">
-                  <QuoteRow label="持仓成本" value={heldQuantity ? cost.toFixed(2) : '--'} />
-                  <QuoteRow label="持仓浮盈亏" value={heldQuantity ? `${(scenario.buyPrice - cost) * heldQuantity >= 0 ? '+' : ''}${((scenario.buyPrice - cost) * heldQuantity).toFixed(2)}` : '--'} valueClass={scenario.buyPrice >= cost ? 'up-text' : 'down-text'} />
-                  <QuoteRow label="可见日成交量" value={formatVolume(scenario.visibleDaily.at(-1)?.volume ?? 0)} />
-                  <QuoteRow label="换手率" value={`${scenario.decisionBar.turnoverRate.toFixed(2)}%`} />
-                  <QuoteRow label="PE" value={scenario.base.stock.pe.toFixed(1)} />
-                  <QuoteRow label="PB" value={scenario.base.stock.pb.toFixed(1)} />
-                  <QuoteRow label="总市值" value={moneyYi(scenario.base.stock.totalMarketCap)} />
-                  <QuoteRow label="流通市值" value={moneyYi(scenario.base.stock.floatMarketCap)} />
+                  <div><span>持仓成本</span><b>{heldQuantity ? cost.toFixed(2) : '--'}</b></div>
+                  <div><span>持仓浮盈亏</span><b className={scenario.buyPrice >= cost ? 'up-text' : 'down-text'}>{heldQuantity ? `${(scenario.buyPrice - cost) * heldQuantity >= 0 ? '+' : ''}${((scenario.buyPrice - cost) * heldQuantity).toFixed(2)}` : '--'}</b></div>
+                  <div><span>可见日成交量</span><b>{formatVolume(scenario.visibleDaily.at(-1)?.volume ?? 0)}</b></div>
+                  <div><span>换手率</span><b>{`${scenario.decisionBar.turnoverRate.toFixed(2)}%`}</b></div>
+                  <div><span>PE</span><b>{scenario.base.stock.pe.toFixed(1)}</b></div>
+                  <div><span>PB</span><b>{scenario.base.stock.pb.toFixed(1)}</b></div>
+                  <div><span>总市值</span><b>{moneyYi(scenario.base.stock.totalMarketCap)}</b></div>
+                  <div><span>流通市值</span><b>{moneyYi(scenario.base.stock.floatMarketCap)}</b></div>
                 </div>
               )}
             </div>
