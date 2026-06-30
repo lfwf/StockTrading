@@ -12,6 +12,7 @@ import './account-history.css';
 import './training-intent.css';
 import './mobile-polish.css';
 import './mobile-final-polish.css';
+import './mobile-screen-refine.css';
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
