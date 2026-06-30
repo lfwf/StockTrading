@@ -32,14 +32,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.sync_akshare import (  # noqa: E402
-    BAOSTOCK_LOGGED_IN,
+from scripts.generate_training_cases import (  # noqa: E402
     baostock_code,
     fetch_stock_daily,
     fetch_universe_members,
     number,
 )
-
 
 DATE_FMT = "%Y%m%d"
 
@@ -265,7 +263,6 @@ def upsert_daily(conn: psycopg.Connection[Any], symbol: str, bars: list[dict[str
 
 
 def ensure_baostock_login() -> bool:
-    _ = BAOSTOCK_LOGGED_IN
     result = bs.login()
     return result.error_code == "0"
 
@@ -415,20 +412,11 @@ def main() -> None:
                     if not args.daily_only:
                         existing_minute = max_date(conn, "minute_bars", member.symbol)
                         minute_start = compact_date(existing_minute) if existing_minute else args.minute_start
-                        rows = fetch_baostock_minutes(
-                            member.symbol,
-                            minute_start,
-                            args.end_date,
-                            args.minute_frequency,
-                        )
+                        rows = fetch_baostock_minutes(member.symbol, minute_start, args.end_date, args.minute_frequency)
                         minute_count = upsert_minutes(conn, rows)
                         total_minutes += minute_count
 
-                    print(
-                        f"[{now_text()}] {index}/{members_total} "
-                        f"{member.symbol} {member.name} daily={daily_count} minute={minute_count}",
-                        flush=True,
-                    )
+                    print(f"[{now_text()}] {index}/{members_total} {member.symbol} {member.name} daily={daily_count} minute={minute_count}", flush=True)
                 except Exception as exc:
                     message = str(exc)
                     errors.append({"symbol": member.symbol, "name": member.name, "error": message})
@@ -437,11 +425,7 @@ def main() -> None:
 
             status = "ok" if not errors else "partial"
             finish_run(conn, run_id, status, members_total, total_daily, total_minutes, errors)
-            print(
-                f"[{now_text()}] finished status={status} members={members_total} "
-                f"daily={total_daily} minute={total_minutes} errors={len(errors)}",
-                flush=True,
-            )
+            print(f"[{now_text()}] finished status={status} members={members_total} daily={total_daily} minute={total_minutes} errors={len(errors)}", flush=True)
         except BaseException as exc:
             errors.append({"symbol": "*", "name": "sync", "error": str(exc)})
             finish_run(conn, run_id, "failed", members_total, total_daily, total_minutes, errors)
