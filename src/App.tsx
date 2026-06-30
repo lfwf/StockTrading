@@ -14,12 +14,24 @@ const NAV_ITEMS: Array<{ key: ProductPage; label: string; phase?: TrainingPhase 
   { key: 'profile', label: '账号' },
 ];
 
+const VALID_PAGES = new Set<ProductPage>(NAV_ITEMS.map((item) => item.key));
+
+function loadLastPage(): ProductPage {
+  try {
+    const saved = localStorage.getItem('stock-trading-active-page') as ProductPage | null;
+    return saved && VALID_PAGES.has(saved) ? saved : 'home';
+  } catch {
+    return 'home';
+  }
+}
+
 export default function App() {
   const trainer = useTradingTrainer();
   const { account, signIn, signOut } = useLocalAccount();
-  const [activePage, setActivePage] = useState<ProductPage>('home');
+  const [activePage, setActivePage] = useState<ProductPage>(() => loadLastPage());
   const [navOpen, setNavOpen] = useState(false);
   const phaseSwitchTimer = useRef<number | null>(null);
+  const restoredPhaseRef = useRef(false);
   const activeItem = NAV_ITEMS.find((item) => item.key === activePage) ?? NAV_ITEMS[0];
 
   useEffect(() => {
@@ -37,6 +49,21 @@ export default function App() {
       document.body.classList.remove('mobile-phase-switching');
     };
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('stock-trading-active-page', activePage);
+    } catch {
+      // ignore unavailable storage
+    }
+  }, [activePage]);
+
+  useEffect(() => {
+    if (restoredPhaseRef.current || trainer.isBootstrapping) return;
+    restoredPhaseRef.current = true;
+    if (activePage === 'history') trainer.switchTrainingPhase('history');
+    if (activePage === 'current') trainer.switchTrainingPhase('current');
+  }, [activePage, trainer]);
 
   function hideActionBarDuringSwitch() {
     if (typeof window === 'undefined' || window.innerWidth > 760) return;
@@ -60,7 +87,7 @@ export default function App() {
     if (activePage === 'knowledge') return <KnowledgePage onNavigate={navigate} />;
     if (activePage === 'history' || activePage === 'current') return <TrainingWorkspace trainer={trainer} />;
     if (activePage === 'mistakes') return <MistakeProfilePage trainer={trainer} onNavigate={navigate} />;
-    return <AccountPage account={account} onSignIn={signIn} onSignOut={signOut} />;
+    return <AccountPage account={account} onSignIn={signIn} onSignOut={signOut} trainer={trainer} />;
   }
 
   return (
