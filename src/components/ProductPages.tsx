@@ -194,72 +194,91 @@ function buildStockTradeGroups(trades: SimTrade[]) {
   return Object.values(groups).sort((a, b) => b.trades.length - a.trades.length || b.realized - a.realized);
 }
 
+function AccountStat({ label, value, desc, tone }: { label: string; value: string; desc: string; tone?: 'up' | 'down' }) {
+  return (
+    <div className="account-stat-card">
+      <span>{label}</span>
+      <b className={tone === 'down' ? 'down-text' : tone === 'up' ? 'up-text' : ''}>{value}</b>
+      <p>{desc}</p>
+    </div>
+  );
+}
+
 function TradingHistoryPanel({ trainer }: { trainer: ReturnType<typeof useTradingTrainer> }) {
   const trades = trainer.portfolio.trades;
   const groups = buildStockTradeGroups(trades);
   const realized = trades.reduce((sum, trade) => sum + (trade.realizedPnl ?? 0), 0);
   const buyCount = trades.filter((trade) => trade.side === 'buy').length;
   const sellCount = trades.filter((trade) => trade.side === 'sell').length;
-  const latestTrades = [...trades].reverse().slice(0, 30);
+  const latestTrades = [...trades].reverse().slice(0, 40);
 
   return (
-    <div className="account-history-grid">
-      <div className="card profile-card trade-history-card">
-        <h2>交易历史概览</h2>
-        <div className="profile-grid compact-history-stats">
-          <StatCard label="总操作" value={`${trades.length}笔`} desc={`买入 ${buyCount} · 卖出 ${sellCount}`} />
-          <StatCard label="已实现盈亏" value={money(realized)} desc="只统计卖出成交后的已实现收益" />
-          <StatCard label="涉及股票" value={`${groups.length}只`} desc="按股票代码聚合操作记录" />
-        </div>
-        {!trades.length && <p className="muted-text">暂无交易记录。买入或卖出后，这里会按股票展示操作、金额和盈亏。</p>}
+    <div className="account-history-grid account-history-redesign">
+      <div className="account-stats-row">
+        <AccountStat label="总操作" value={`${trades.length}笔`} desc={`买入 ${buyCount} · 卖出 ${sellCount}`} />
+        <AccountStat label="已实现盈亏" value={money(realized)} desc="只统计卖出成交后的收益" tone={realized >= 0 ? 'up' : 'down'} />
+        <AccountStat label="涉及股票" value={`${groups.length}只`} desc="按股票代码聚合记录" />
       </div>
 
-      {groups.length > 0 && (
-        <div className="card profile-card stock-history-card">
-          <h2>按股票查看</h2>
-          <div className="stock-history-list">
-            {groups.slice(0, 12).map((group) => (
-              <div key={group.symbol} className="stock-history-item">
-                <div className="stock-history-head">
-                  <b>{group.symbol}</b>
-                  <span className={group.realized >= 0 ? 'up-text' : 'down-text'}>{money(group.realized)}</span>
-                </div>
-                <div className="stock-history-meta">
-                  <span>{group.trades.length} 笔操作</span>
-                  <span>买入 ¥{group.buyAmount.toFixed(2)}</span>
-                  <span>卖出 ¥{group.sellAmount.toFixed(2)}</span>
-                </div>
-                <div className="stock-history-trades">
-                  {[...group.trades].reverse().slice(0, 6).map((trade) => (
-                    <div key={trade.id} className="trade-row">
-                      <span>{trade.date} {trade.time}</span>
-                      <b className={trade.side === 'buy' ? 'up-text' : 'down-text'}>{tradeSideText(trade.side)}</b>
-                      <span>{trade.quantity}股 · ¥{trade.price.toFixed(2)}</span>
-                      <em className={trade.realizedPnl >= 0 ? 'up-text' : 'down-text'}>{trade.side === 'sell' ? money(trade.realizedPnl) : '未实现'}</em>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+      {!trades.length && (
+        <div className="card profile-card empty-account-history">
+          <h2>暂无交易记录</h2>
+          <p className="muted-text">买入或卖出后，这里会自动生成按股票汇总和最近操作流水。</p>
         </div>
       )}
 
-      {latestTrades.length > 0 && (
-        <div className="card profile-card trade-history-card">
-          <h2>最近操作流水</h2>
-          <div className="trade-table">
-            {latestTrades.map((trade) => (
-              <div key={trade.id} className="trade-row full">
-                <span>{trade.date} {trade.time}</span>
-                <b>{trade.symbol}</b>
-                <em className={trade.side === 'buy' ? 'up-text' : 'down-text'}>{tradeSideText(trade.side)}</em>
-                <span>{trade.quantity}股</span>
-                <span>¥{trade.price.toFixed(2)}</span>
-                <span>金额 ¥{trade.amount.toFixed(2)}</span>
-                <strong className={trade.realizedPnl >= 0 ? 'up-text' : 'down-text'}>{trade.side === 'sell' ? money(trade.realizedPnl) : '--'}</strong>
-              </div>
-            ))}
+      {groups.length > 0 && (
+        <div className="account-history-columns">
+          <div className="card profile-card stock-history-card stock-summary-panel">
+            <div className="account-panel-head">
+              <h2>按股票汇总</h2>
+              <span>{groups.length} 只</span>
+            </div>
+            <div className="stock-history-list">
+              {groups.slice(0, 18).map((group) => (
+                <div key={group.symbol} className="stock-history-item compact-stock-item">
+                  <div className="stock-history-head">
+                    <b>{group.symbol}</b>
+                    <span className={group.realized >= 0 ? 'up-text' : 'down-text'}>{money(group.realized)}</span>
+                  </div>
+                  <div className="stock-history-meta">
+                    <span>{group.trades.length} 笔</span>
+                    <span>买 ¥{group.buyAmount.toFixed(0)}</span>
+                    <span>卖 ¥{group.sellAmount.toFixed(0)}</span>
+                  </div>
+                  <div className="stock-history-trades compact-stock-trades">
+                    {[...group.trades].reverse().slice(0, 3).map((trade) => (
+                      <div key={trade.id} className="trade-row">
+                        <span>{trade.date}</span>
+                        <b className={trade.side === 'buy' ? 'up-text' : 'down-text'}>{tradeSideText(trade.side)}</b>
+                        <span>{trade.quantity}股 · ¥{trade.price.toFixed(2)}</span>
+                        <em className={trade.realizedPnl >= 0 ? 'up-text' : 'down-text'}>{trade.side === 'sell' ? money(trade.realizedPnl) : '未实现'}</em>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="card profile-card trade-history-card latest-trades-panel">
+            <div className="account-panel-head">
+              <h2>最近操作流水</h2>
+              <span>{latestTrades.length} 笔</span>
+            </div>
+            <div className="trade-table compact-trade-table">
+              {latestTrades.map((trade) => (
+                <div key={trade.id} className="trade-row full">
+                  <span>{trade.date} {trade.time}</span>
+                  <b>{trade.symbol}</b>
+                  <em className={trade.side === 'buy' ? 'up-text' : 'down-text'}>{tradeSideText(trade.side)}</em>
+                  <span>{trade.quantity}股</span>
+                  <span>¥{trade.price.toFixed(2)}</span>
+                  <span>¥{trade.amount.toFixed(0)}</span>
+                  <strong className={trade.realizedPnl >= 0 ? 'up-text' : 'down-text'}>{trade.side === 'sell' ? money(trade.realizedPnl) : '--'}</strong>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -283,12 +302,14 @@ export function AccountPage({
 
   if (account) {
     return (
-      <section className="content-page account-page">
-        <div className="card account-card">
-          <p className="eyebrow">账号</p>
-          <h1>{account.name}</h1>
-          <p>{account.email}</p>
-          <p className="muted-text">当前账号只保存在本机浏览器里。后面接入正式登录后，训练记录、错题和统计可以跟账号同步。</p>
+      <section className="content-page account-page account-page-redesign">
+        <div className="card account-card account-hero-card">
+          <div>
+            <p className="eyebrow">账号</p>
+            <h1>{account.name}</h1>
+            <p>{account.email}</p>
+            <p className="muted-text">当前账号只保存在本机浏览器里。后面接入正式登录后，训练记录、错题和统计可以跟账号同步。</p>
+          </div>
           <button className="ghost-btn" onClick={onSignOut}>退出登录</button>
         </div>
         <TradingHistoryPanel trainer={trainer} />
@@ -297,17 +318,21 @@ export function AccountPage({
   }
 
   return (
-    <section className="content-page account-page">
-      <div className="card account-card">
-        <p className="eyebrow">登录 / 注册</p>
-        <h1>先用本地账号试一下</h1>
-        <p>现在先做了一个轻量版本，用来保存本机训练记录。正式上线时可以再接邮箱验证码、手机号或微信登录。</p>
-        <label>昵称</label>
-        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：练习用户" />
-        <label>邮箱</label>
-        <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" />
-        <button className="primary-btn" onClick={() => onSignIn(email, name)}>创建本地账号</button>
-        <p className="risk-note">当前账号信息只保存在本机浏览器。</p>
+    <section className="content-page account-page account-page-redesign">
+      <div className="card account-card account-hero-card account-login-card">
+        <div>
+          <p className="eyebrow">登录 / 注册</p>
+          <h1>先用本地账号试一下</h1>
+          <p>现在先做了一个轻量版本，用来保存本机训练记录。正式上线时可以再接邮箱验证码、手机号或微信登录。</p>
+        </div>
+        <div className="account-login-form">
+          <label>昵称</label>
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：练习用户" />
+          <label>邮箱</label>
+          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" />
+          <button className="primary-btn" onClick={() => onSignIn(email, name)}>创建本地账号</button>
+          <p className="risk-note">当前账号信息只保存在本机浏览器。</p>
+        </div>
       </div>
       <TradingHistoryPanel trainer={trainer} />
     </section>
