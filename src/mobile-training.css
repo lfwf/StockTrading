@@ -41,22 +41,22 @@
 
 @media (max-width: 760px) {
   .product-shell {
-    padding-bottom: calc(118px + var(--mobile-action-bottom, 10px));
+    padding-bottom: calc(96px + var(--mobile-action-bottom, 10px));
   }
 
   .training-workspace {
     display: grid;
-    gap: 10px;
-    padding-bottom: 22px;
+    gap: 8px;
+    padding-bottom: 18px;
   }
 
   .mobile-chart-card {
     order: 1;
     display: block;
     position: sticky;
-    top: 62px;
+    top: 54px;
     z-index: 8;
-    padding: 10px;
+    padding: 8px;
     background: rgba(12, 23, 34, 0.96);
     backdrop-filter: blur(12px);
   }
@@ -65,7 +65,7 @@
     display: grid;
     grid-template-columns: repeat(5, 1fr);
     gap: 5px;
-    margin-bottom: 8px;
+    margin-bottom: 7px;
   }
 
   .mobile-chart-tabs button {
@@ -84,7 +84,7 @@
   }
 
   .mobile-chart-body .chart-header {
-    margin-bottom: 4px;
+    margin-bottom: 3px;
   }
 
   .mobile-chart-body .chart-header h2 {
@@ -96,7 +96,9 @@
   }
 
   .mobile-chart-body .chart {
-    max-height: 290px;
+    height: min(44vh, 380px);
+    min-height: 300px;
+    max-height: none;
   }
 
   .desktop-chart-grid,
@@ -113,11 +115,19 @@
   .side-panel {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 10px;
+    gap: 9px;
   }
 
   .quote-card .metric-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .quote-card .metric {
+    padding: 6px 8px;
+  }
+
+  .quote-card .metric b {
+    font-size: 13px;
   }
 
   .decision-card {
@@ -173,14 +183,14 @@
     bottom: var(--mobile-action-bottom, calc(10px + env(safe-area-inset-bottom, 0px)));
     z-index: 1000;
     display: grid !important;
-    grid-template-columns: 1.1fr 1.1fr 0.9fr 0.9fr 0.9fr;
+    grid-template-columns: 1.05fr 1fr 1fr 1fr 0.95fr;
     gap: 6px;
     max-width: calc(100vw - 16px);
-    padding: 8px;
-    background: rgba(7, 16, 24, 0.98);
-    border: 1px solid rgba(148, 163, 184, 0.24);
-    border-radius: 16px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.38);
+    padding: 7px;
+    background: rgba(7, 16, 24, 0.96);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 15px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.34);
     opacity: 1;
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
@@ -208,12 +218,30 @@
   }
 
   .mobile-action-bar button {
-    min-height: 42px;
+    min-height: 40px;
     padding: 8px 4px;
     border-radius: 10px;
     font-size: 12px;
     touch-action: manipulation;
     white-space: nowrap;
+  }
+
+  .mobile-action-bar .sell-btn {
+    background: rgba(148, 163, 184, 0.12);
+    color: #cbd5e1;
+    border-color: rgba(148, 163, 184, 0.22);
+  }
+
+  .mobile-action-bar .neutral-btn {
+    background: rgba(88, 166, 255, 0.16);
+    color: #dbeafe;
+    border-color: rgba(88, 166, 255, 0.3);
+  }
+
+  .mobile-action-bar .next-case-btn {
+    background: rgba(148, 163, 184, 0.1);
+    color: #cbd5e1;
+    border: 1px solid rgba(148, 163, 184, 0.2);
   }
 
   .mobile-action-bar button:disabled {
@@ -250,5 +278,9 @@
 
   .mobile-chart-tabs button {
     font-size: 11px;
+  }
+
+  .mobile-chart-body .chart {
+    min-height: 280px;
   }
 }
