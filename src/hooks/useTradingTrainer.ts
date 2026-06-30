@@ -32,6 +32,26 @@ function tradeStateLabel(state: TrainerTradeState): string {
   return '已结束';
 }
 
+function persistNoBuyRecord(params: {
+  caseId: string;
+  symbol: string;
+  name: string;
+  date: string;
+  mode: TimeMode;
+  reason: string;
+  ret5: number | null;
+  maxDrawdown: number;
+}) {
+  try {
+    const raw = localStorage.getItem('stock-trading-no-buy-records');
+    const list = raw ? JSON.parse(raw) as unknown[] : [];
+    const next = [{ ...params, createdAt: new Date().toISOString() }, ...list].slice(0, 300);
+    localStorage.setItem('stock-trading-no-buy-records', JSON.stringify(next));
+  } catch {
+    // ignore unavailable storage
+  }
+}
+
 export function useTradingTrainer() {
   const [trainingCases, setTrainingCases] = useState<BaseCase[]>([]);
   const [currentCases, setCurrentCases] = useState<BaseCase[]>([]);
@@ -209,6 +229,16 @@ export function useTradingTrainer() {
     const result = reviewSkip(scenario);
     const reasonText = `未买入原因：${noBuyReasonLabel(noBuyReason)}`;
     setUserChoice('skip');
+    persistNoBuyRecord({
+      caseId: baseCase.id,
+      symbol: baseCase.stock.symbol,
+      name: baseCase.stock.name,
+      date: baseCase.daily[baseCase.decisionIndex]?.date ?? '',
+      mode: scenario.mode,
+      reason: reasonText,
+      ret5: result.ret5,
+      maxDrawdown: result.maxDrawdown,
+    });
     if (shouldRecordMistake(result, 'skip')) {
       const item = createMistakeItem({
         baseCase,
