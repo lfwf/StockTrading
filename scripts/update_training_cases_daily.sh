@@ -29,6 +29,6 @@ scripts/run_market_sync.sh \
   --forward-days 20 \
   --candidate-step 5 \
   --max-cases-per-stock 12 \
-  --max-history-cases 0 \
-  --current-count 0 \
+  --max-history-cases 3600 \
+  --current-count 300 \
   >> logs/case-generate.log 2>&1

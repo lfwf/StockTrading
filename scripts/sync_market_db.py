@@ -17,10 +17,11 @@ import argparse
 import fcntl
 import json
 import os
+import signal
 import sys
 import time
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -53,8 +54,44 @@ def dashed_date(value: str | date) -> str:
     return f"{text[0:4]}-{text[4:6]}-{text[6:8]}"
 
 
+def date_chunks(start_date: str, end_date: str) -> list[tuple[str, str]]:
+    start = datetime.strptime(compact_date(start_date), DATE_FMT).date()
+    end = datetime.strptime(compact_date(end_date), DATE_FMT).date()
+    if start > end:
+        return []
+    chunks: list[tuple[str, str]] = []
+    current = start
+    while current <= end:
+        chunk_end = min(date(current.year, 12, 31), end)
+        chunks.append((current.strftime(DATE_FMT), chunk_end.strftime(DATE_FMT)))
+        current = chunk_end + timedelta(days=1)
+    return chunks
+
+
 def now_text() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+class RequestTimeout(RuntimeError):
+    pass
+
+
+@contextmanager
+def request_timeout(seconds: int) -> Iterable[None]:
+    if seconds <= 0:
+        yield
+        return
+
+    def raise_timeout(signum: int, frame: Any) -> None:
+        raise RequestTimeout(f"BaoStock minute request timed out after {seconds}s")
+
+    previous = signal.signal(signal.SIGALRM, raise_timeout)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 @contextmanager
@@ -267,46 +304,47 @@ def ensure_baostock_login() -> bool:
     return result.error_code == "0"
 
 
-def fetch_baostock_minutes(symbol: str, start_date: str, end_date: str, frequency: str) -> list[tuple[Any, ...]]:
-    result = bs.query_history_k_data_plus(
-        baostock_code(symbol),
-        "date,time,open,high,low,close,volume,amount",
-        start_date=dashed_date(start_date),
-        end_date=dashed_date(end_date),
-        frequency=frequency,
-        adjustflag="2",
-    )
-    if result.error_code != "0":
-        raise RuntimeError(result.error_msg)
-
-    rows: list[tuple[Any, ...]] = []
-    current_date = ""
-    weighted_sum = 0.0
-    volume_sum = 0.0
-    while result.next():
-        item = dict(zip(result.fields, result.get_row_data()))
-        row_date = str(item.get("date", ""))
-        raw_time = str(item.get("time", ""))
-        price = number(item.get("close"))
-        volume = number(item.get("volume"))
-        if row_date != current_date:
-            current_date = row_date
-            weighted_sum = 0.0
-            volume_sum = 0.0
-        weighted_sum += price * volume
-        volume_sum += volume
-        avg_price = weighted_sum / volume_sum if volume_sum else price
-        rows.append(
-            (
-                symbol,
-                row_date,
-                f"{raw_time[8:10]}:{raw_time[10:12]}",
-                round(price, 3),
-                round(avg_price, 3),
-                int(volume),
-            )
+def fetch_baostock_minutes(symbol: str, start_date: str, end_date: str, frequency: str, timeout_seconds: int = 45) -> list[tuple[Any, ...]]:
+    with request_timeout(timeout_seconds):
+        result = bs.query_history_k_data_plus(
+            baostock_code(symbol),
+            "date,time,open,high,low,close,volume,amount",
+            start_date=dashed_date(start_date),
+            end_date=dashed_date(end_date),
+            frequency=frequency,
+            adjustflag="2",
         )
-    return rows
+        if result.error_code != "0":
+            raise RuntimeError(result.error_msg)
+
+        rows: list[tuple[Any, ...]] = []
+        current_date = ""
+        weighted_sum = 0.0
+        volume_sum = 0.0
+        while result.next():
+            item = dict(zip(result.fields, result.get_row_data()))
+            row_date = str(item.get("date", ""))
+            raw_time = str(item.get("time", ""))
+            price = number(item.get("close"))
+            volume = number(item.get("volume"))
+            if row_date != current_date:
+                current_date = row_date
+                weighted_sum = 0.0
+                volume_sum = 0.0
+            weighted_sum += price * volume
+            volume_sum += volume
+            avg_price = weighted_sum / volume_sum if volume_sum else price
+            rows.append(
+                (
+                    symbol,
+                    row_date,
+                    f"{raw_time[8:10]}:{raw_time[10:12]}",
+                    round(price, 3),
+                    round(avg_price, 3),
+                    int(volume),
+                )
+            )
+        return rows
 
 
 def upsert_minutes(conn: psycopg.Connection[Any], rows: list[tuple[Any, ...]]) -> int:
@@ -345,6 +383,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--universe", default="csi800", choices=["hs300", "csi500", "csi800"], help="stock universe to sync")
     parser.add_argument("--member-limit", type=int, default=800, help="member fetch limit")
     parser.add_argument("--minute-frequency", default="5", choices=["5", "15", "30", "60"], help="BaoStock period")
+    parser.add_argument("--request-timeout", type=int, default=45, help="seconds before skipping a stuck BaoStock minute request; 0 disables")
     parser.add_argument("--sleep", type=float, default=0.15, help="sleep between symbols")
     parser.add_argument("--symbols", default="", help="optional comma-separated symbol allowlist")
     parser.add_argument("--daily-only", action="store_true", help="skip minute sync")
@@ -412,8 +451,9 @@ def main() -> None:
                     if not args.daily_only:
                         existing_minute = max_date(conn, "minute_bars", member.symbol)
                         minute_start = compact_date(existing_minute) if existing_minute else args.minute_start
-                        rows = fetch_baostock_minutes(member.symbol, minute_start, args.end_date, args.minute_frequency)
-                        minute_count = upsert_minutes(conn, rows)
+                        for chunk_start, chunk_end in date_chunks(minute_start, args.end_date):
+                            rows = fetch_baostock_minutes(member.symbol, chunk_start, chunk_end, args.minute_frequency, args.request_timeout)
+                            minute_count += upsert_minutes(conn, rows)
                         total_minutes += minute_count
 
                     print(f"[{now_text()}] {index}/{members_total} {member.symbol} {member.name} daily={daily_count} minute={minute_count}", flush=True)

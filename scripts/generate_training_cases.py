@@ -19,7 +19,7 @@ import sqlite3
 import time
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -569,46 +569,6 @@ def fetch_baostock_intraday(symbol: str, date: str, period: str) -> list[dict[st
     return points
 
 
-def trading_minutes(step: int = 1) -> list[str]:
-    result: list[str] = []
-    for sh, sm, eh, em in [(9, 30, 11, 30), (13, 0, 15, 0)]:
-        current = datetime(2020, 1, 1, sh, sm)
-        end = datetime(2020, 1, 1, eh, em)
-        while current <= end:
-            result.append(current.strftime("%H:%M"))
-            current += timedelta(minutes=step)
-    return result
-
-
-def synthetic_intraday(day: dict[str, Any], seed: int) -> list[dict[str, Any]]:
-    random.seed(seed)
-    times = trading_minutes(1)
-    open_price = float(day["open"])
-    close_price = float(day["close"])
-    high = float(day["high"])
-    low = float(day["low"])
-    total_volume = max(int(day.get("volume", 0)), 1)
-    price = open_price
-    amount_sum = 0.0
-    volume_sum = 0
-    points: list[dict[str, Any]] = []
-    for idx, text in enumerate(times):
-        progress = idx / max(len(times) - 1, 1)
-        target = open_price + (close_price - open_price) * progress
-        wave = math.sin(progress * math.pi * 2.4 + random.random() * 0.8) * (high - low) * 0.06
-        noise = (random.random() - 0.5) * max(high - low, close_price * 0.015) * 0.12
-        price = max(low, min(high, price * 0.72 + (target + wave + noise) * 0.28))
-        if idx == 0:
-            price = open_price
-        if idx == len(times) - 1:
-            price = close_price
-        volume = int(total_volume / len(times) * (0.5 + random.random() * 1.7))
-        volume_sum += volume
-        amount_sum += volume * price
-        points.append({"time": text, "price": round(price, 3), "avgPrice": round(amount_sum / max(volume_sum, 1), 3), "volume": volume})
-    return points
-
-
 def fetch_intraday(symbol: str, date: str, daily_bar: dict[str, Any], period: str) -> tuple[list[dict[str, Any]], str]:
     points = fetch_baostock_intraday(symbol, date, period)
     if len(points) >= 20:
@@ -620,7 +580,7 @@ def fetch_intraday(symbol: str, date: str, daily_bar: dict[str, Any], period: st
             return points, "real"
     except Exception:
         pass
-    return synthetic_intraday(daily_bar, seed=sum(ord(ch) for ch in f"{symbol}-{date}")), "synthetic"
+    return [], "missing"
 
 
 def load_intraday(symbol: str, date: str, daily_bar: dict[str, Any], period: str, store: MarketStore | None) -> tuple[list[dict[str, Any]], str]:
@@ -628,7 +588,7 @@ def load_intraday(symbol: str, date: str, daily_bar: dict[str, Any], period: str
         points = store.minute(symbol, date)
         if len(points) >= 20:
             return points, store.kind
-        return synthetic_intraday(daily_bar, seed=sum(ord(ch) for ch in f"{symbol}-{date}")), "synthetic"
+        return [], "missing"
     return fetch_intraday(symbol, date, daily_bar, period)
 
 
@@ -646,7 +606,7 @@ def fetch_index_intraday(date: str, daily_bar: dict[str, Any], period: str) -> t
     points = fetch_baostock_intraday("000300", date, period)
     if len(points) >= 20:
         return points, "baostock"
-    return synthetic_intraday(daily_bar, seed=300300 + int(date.replace("-", ""))), "synthetic"
+    return [], "missing"
 
 
 def load_index_intraday(date: str, daily_bar: dict[str, Any], period: str, store: MarketStore | None) -> tuple[list[dict[str, Any]], str]:
@@ -654,7 +614,7 @@ def load_index_intraday(date: str, daily_bar: dict[str, Any], period: str, store
         points = store.minute("000300", date)
         if len(points) >= 20:
             return points, store.kind
-        return synthetic_intraday(daily_bar, seed=300300 + int(date.replace("-", ""))), "synthetic"
+        return [], "missing"
     return fetch_index_intraday(date, daily_bar, period)
 
 
@@ -837,7 +797,7 @@ def build_case(member: Member, stock_info: dict[str, Any], daily: list[dict[str,
         date = bar["date"]
         if date not in stock_cache:
             stock_cache[date] = load_intraday(member.symbol, date, bar, args.minute_period, store)
-            if stock_cache[date][1] not in {"postgres", "sqlite", "synthetic"}:
+            if stock_cache[date][1] not in {"postgres", "sqlite", "missing"}:
                 time.sleep(args.sleep)
         return stock_cache[date]
 
@@ -845,10 +805,10 @@ def build_case(member: Member, stock_info: dict[str, Any], daily: list[dict[str,
         date = bar["date"]
         index_bar = index_daily_by_date.get(date)
         if not index_bar:
-            return synthetic_intraday(bar, 300300 + int(date.replace("-", ""))), "synthetic"
+            return [], "missing"
         if date not in index_cache:
             index_cache[date] = load_index_intraday(date, index_bar, args.minute_period, store)
-            if index_cache[date][1] not in {"postgres", "sqlite", "synthetic"}:
+            if index_cache[date][1] not in {"postgres", "sqlite", "missing"}:
                 time.sleep(args.sleep)
         return index_cache[date]
 
@@ -874,7 +834,7 @@ def build_case(member: Member, stock_info: dict[str, Any], daily: list[dict[str,
         "score": candidate.score,
         "futureStats": candidate.future_stats,
         "dataQuality": {"daily": "real", "indexDaily": "real" if index_daily else "missing", "stockIntraday": stock_source, "indexIntraday": index_source},
-    }, stock_source != "synthetic", index_source != "synthetic"
+    }, stock_source != "missing", index_source != "missing"
 
 
 def build_cases(args: argparse.Namespace) -> dict[str, Any]:
@@ -944,7 +904,7 @@ def build_cases(args: argparse.Namespace) -> dict[str, Any]:
         raise RuntimeError("没有生成任何训练题，请检查行情接口或降低筛选条件")
 
     return {
-        "source": f"local {store.kind if store else 'external'} + AKShare/BaoStock fallback",
+        "source": f"local {store.kind if store else 'external'} + real market data",
         "generatedAt": datetime.now().isoformat(timespec="seconds"),
         "strategy": {"universe": args.universe, "lookbackDays": args.lookback_days, "forwardDays": args.forward_days, "candidateStep": args.candidate_step, "maxCasesPerStock": args.max_cases_per_stock, "minGapDays": args.min_gap_days, "minScore": args.min_score},
         "quality": {"daily": "real", "totalCases": len(history_cases) + len(current_cases), "historyCases": len(history_cases), "currentCases": len(current_cases), "localDailyCases": local_daily_cases, "realStockIntradayCases": real_stock_intraday, "realIndexIntradayCases": real_index_intraday},
@@ -1162,7 +1122,7 @@ def stream_cases_to_db(args: argparse.Namespace) -> dict[str, Any]:
     store = connect_market_store(args)
     conn = connect_case_db(args)
     ensure_case_schema(conn)
-    source = f"local {store.kind if store else 'external'} + AKShare/BaoStock fallback"
+    source = f"local {store.kind if store else 'external'} + real market data"
     empty_quality = {"daily": "real", "totalCases": 0, "historyCases": 0, "currentCases": 0, "localDailyCases": 0, "realStockIntradayCases": 0, "realIndexIntradayCases": 0}
     with conn.cursor() as cur:
         cur.execute(

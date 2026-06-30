@@ -1,7 +1,7 @@
 export type TimeMode = 'open' | 'noon' | 'close';
 export type DecisionChoice = 'buy' | 'skip';
 export type HoldPlan = 1 | 3 | 5 | 10 | 20;
-export type PositionSize = 25 | 50 | 100;
+export type PositionSize = 10 | 20 | 25 | 50 | 70 | 80 | 100;
 
 export interface StockMeta {
   symbol: string;

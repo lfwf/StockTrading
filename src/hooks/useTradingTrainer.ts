@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { AdvisorResult, BaseCase, DecisionChoice, DecisionInput, IntradayPoint, MarketCursor, PortfolioState, PositionSize, ReviewResult, TimeMode } from '../types';
-import { buildTradingScenarioView, createBaseCase, createRandomMode, initialCursorForMode } from '../lib/market';
+import { buildTradingScenarioView, createRandomMode, initialCursorForMode } from '../lib/market';
 import { reviewDecision, reviewSkip } from '../lib/review';
 import { loadNextTrainingCase, pickTrainingCase } from '../lib/dataset';
 import { assessScenario } from '../lib/advisor';
@@ -52,13 +52,53 @@ function persistNoBuyRecord(params: {
   }
 }
 
+const LOADING_CASE: BaseCase = {
+  id: 'loading-real-data',
+  stock: {
+    symbol: '000000',
+    name: '加载中',
+    market: '沪市',
+    industry: '',
+    pe: 0,
+    pb: 0,
+    totalMarketCap: 0,
+    floatMarketCap: 0,
+  },
+  daily: [{
+    date: '1970-01-01',
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    preClose: 0,
+    volume: 0,
+    amount: 0,
+    turnoverRate: 0,
+  }],
+  indexDaily: [{
+    date: '1970-01-01',
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    preClose: 0,
+    volume: 0,
+    amount: 0,
+    turnoverRate: 0,
+  }],
+  decisionIndex: 0,
+  fullIntraday: [{ time: '09:30', price: 0, avgPrice: 0, volume: 0 }],
+  indexIntraday: [],
+  intradayByDate: { '1970-01-01': [{ time: '09:30', price: 0, avgPrice: 0, volume: 0 }] },
+};
+
 export function useTradingTrainer() {
   const [trainingCases, setTrainingCases] = useState<BaseCase[]>([]);
   const [currentCases, setCurrentCases] = useState<BaseCase[]>([]);
-  const [dataStatus, setDataStatus] = useState('正在检查 AKShare 数据');
+  const [dataStatus, setDataStatus] = useState('正在加载真实题库');
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [isCaseLoading, setIsCaseLoading] = useState(false);
-  const [baseCase, setBaseCase] = useState(() => createBaseCase());
+  const [baseCase, setBaseCase] = useState<BaseCase>(() => LOADING_CASE);
   const [mode, setMode] = useState<TimeMode>(() => createRandomMode());
   const [cursor, setCursor] = useState<MarketCursor>(() => ({ dayOffset: 0, pointIndex: 0 }));
   const [showStock, setShowStock] = useState(false);
@@ -151,11 +191,11 @@ export function useTradingTrainer() {
   function getNextBaseCase(seed: number, phase = trainingPhase): BaseCase {
     if (phase === 'current') {
       const source = currentCases.length ? currentCases : getCasesForPhase({ cases: trainingCases, phase, presets: ['random'], mistakes });
-      return pickTrainingCase(source, seed) ?? createBaseCase(seed);
+      return pickTrainingCase(source, seed) ?? baseCase;
     }
     const filtered = getCasesForPhase({ cases: trainingCases, phase: 'history', presets: trainingPresets, mistakes });
     const source = filtered.length > 0 ? filtered : trainingCases;
-    return pickTrainingCase(source, seed) ?? createBaseCase(seed);
+    return pickTrainingCase(source, seed) ?? baseCase;
   }
 
   function rememberCase(item: BaseCase, phase: TrainingPhase) {
@@ -197,6 +237,10 @@ export function useTradingTrainer() {
         seed,
       });
       const nextBase = remote?.case ?? getNextBaseCase(seed, nextPhase);
+      if (nextBase.id === baseCase.id && !remote?.case) {
+        setTradeMessage('没有可用的完整真实题库，请先补全数据或重新生成题库。');
+        return;
+      }
       const nextMode: TimeMode = nextPhase === 'current' ? 'open' : mode;
       applyBaseCase(nextBase, nextPhase, nextMode);
     } finally {
@@ -285,7 +329,7 @@ export function useTradingTrainer() {
     setMistakes((current) => [item, ...current.filter((old) => old.id !== item.id)].slice(0, 80));
   }
 
-  function buy() {
+  function buy(size: PositionSize = positionSize) {
     if (isBootstrapping || isCaseLoading) {
       setTradeMessage('正在加载训练数据，请稍后再操作。');
       return;
@@ -296,7 +340,8 @@ export function useTradingTrainer() {
     }
 
     const advisorResult = assessScenario(scenario);
-    const result = buyShares(portfolio, positionSize, scenario.buyPrice, currentDate, currentTime, baseCase.id, baseCase.stock.symbol);
+    const result = buyShares(portfolio, size, scenario.buyPrice, currentDate, currentTime, baseCase.id, baseCase.stock.symbol);
+    setPositionSize(size);
     if (!result.trade) {
       setAdvisor(advisorResult);
       setUserChoice('buy');
@@ -307,7 +352,7 @@ export function useTradingTrainer() {
     const reasonLabel = buyReasonLabel(buyReason);
     const decision: DecisionInput = {
       choice: 'buy',
-      positionSize,
+      positionSize: size,
       holdPlan: 5,
       stopLossPct: stopLossPlan,
       reasonTags: [...checklistReasons(checklist), reasonLabel],
@@ -322,12 +367,13 @@ export function useTradingTrainer() {
     persistTrade(result.portfolio, result.trade, equity(result.portfolio, scenario.buyPrice)).catch(() => undefined);
   }
 
-  function sell() {
+  function sell(size: PositionSize = positionSize) {
     if (isBootstrapping || isCaseLoading) {
       setTradeMessage('正在加载训练数据，请稍后再操作。');
       return;
     }
-    const result = sellShares(portfolio, positionSize, scenario.buyPrice, currentDate, currentTime, baseCase.id, baseCase.stock.symbol);
+    const result = sellShares(portfolio, size, scenario.buyPrice, currentDate, currentTime, baseCase.id, baseCase.stock.symbol);
+    setPositionSize(size);
     if (!result.trade) {
       if (heldQuantity > 0 && availableQuantity === 0) {
         setTradeMessage('当前持仓受 T+1 限制，今天买入的股票要到下一交易日才能卖。');
@@ -346,7 +392,7 @@ export function useTradingTrainer() {
     if (cleared) {
       const finalReview = pendingReview ?? reviewDecision(scenario, {
         choice: 'buy',
-        positionSize,
+        positionSize: size,
         holdPlan: 5,
         stopLossPct: stopLossPlan,
         reasonTags: [...checklistReasons(checklist), buyReasonLabel(buyReason)],

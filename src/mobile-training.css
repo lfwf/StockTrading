@@ -3,6 +3,35 @@
   display: none;
 }
 
+.trade-size-options {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  align-items: center;
+  padding: 7px;
+  background: rgba(148, 163, 184, 0.08);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 10px;
+}
+
+.trade-size-options span {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.trade-size-options button {
+  min-width: 0;
+  padding: 6px 7px;
+  background: rgba(88, 166, 255, 0.14);
+  border: 1px solid rgba(88, 166, 255, 0.28);
+  border-radius: 8px;
+  color: #dbeafe;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .mobile-market-metrics {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -12,7 +41,7 @@
 
 @media (max-width: 760px) {
   .product-shell {
-    padding-bottom: calc(122px + var(--mobile-action-bottom, 10px));
+    padding-bottom: calc(118px + var(--mobile-action-bottom, 10px));
   }
 
   .training-workspace {
@@ -190,6 +219,20 @@
   .mobile-action-bar button:disabled {
     opacity: 0.55;
     visibility: visible;
+  }
+
+  .mobile-action-bar .trade-size-options {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    padding: 6px;
+  }
+
+  .mobile-action-bar .trade-size-options span {
+    grid-column: 1 / -1;
+  }
+
+  .mobile-action-bar .trade-size-options button {
+    min-height: 34px;
+    padding: 6px 0;
   }
 }
 

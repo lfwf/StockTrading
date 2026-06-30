@@ -36,7 +36,7 @@ export function useDatasetBootstrap(params: {
     loadTrainingDataset().then((dataset) => {
       if (cancelled) return;
       if (!dataset) {
-        onDataStatus('模拟数据 · 运行 AKShare 脚本后自动切换');
+        onDataStatus('数据库题库未生成');
         onReady();
         return;
       }

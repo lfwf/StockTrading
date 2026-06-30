@@ -161,14 +161,6 @@ def fetch_intraday(conn: psycopg.Connection[Any], symbol: str, target_date: str)
         ]
 
 
-def synthetic_intraday(day: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        {"time": "09:30", "price": day["open"], "avgPrice": day["open"], "volume": 0},
-        {"time": "11:30", "price": round((day["high"] + day["low"]) / 2, 3), "avgPrice": round((day["high"] + day["low"]) / 2, 3), "volume": 0},
-        {"time": "15:00", "price": day["close"], "avgPrice": day["close"], "volume": 0},
-    ]
-
-
 def build_future_stats(daily: list[dict[str, Any]], index: int, forward_days: int) -> dict[str, float | None]:
     entry = float(daily[index]["open"])
     future = daily[index + 1:index + forward_days + 1]
@@ -302,7 +294,7 @@ def diversify_candidates(candidates: list[Candidate], args: argparse.Namespace) 
     return sorted(selected, key=lambda x: x.index)
 
 
-def build_case(conn: psycopg.Connection[Any], member: dict[str, Any], daily: list[dict[str, Any]], index_daily_by_date: dict[str, dict[str, Any]], index_daily: list[dict[str, Any]], candidate: Candidate, phase: str, args: argparse.Namespace) -> tuple[dict[str, Any], bool, bool]:
+def build_case(conn: psycopg.Connection[Any], member: dict[str, Any], daily: list[dict[str, Any]], index_daily_by_date: dict[str, dict[str, Any]], index_daily: list[dict[str, Any]], candidate: Candidate, phase: str, args: argparse.Namespace) -> tuple[dict[str, Any], bool, bool] | None:
     start = max(0, candidate.index - args.lookback_days)
     end = min(len(daily), candidate.index + args.forward_days + 1)
     sliced_daily = daily[start:end]
@@ -314,20 +306,19 @@ def build_case(conn: psycopg.Connection[Any], member: dict[str, Any], daily: lis
 
     full_intraday = fetch_intraday(conn, member["symbol"], decision_date)
     stock_real = bool(full_intraday)
-    if not full_intraday:
-        full_intraday = synthetic_intraday(decision_bar)
+    if not stock_real:
+        return None
 
     index_intraday = fetch_intraday(conn, "000300", decision_date)
     index_real = bool(index_intraday)
-    if not index_intraday:
-        index_bar = index_daily_by_date.get(decision_date, decision_bar)
-        index_intraday = synthetic_intraday(index_bar)
 
     intraday_by_date = {decision_date: full_intraday}
     if phase == "history":
         for bar in daily[candidate.index + 1:candidate.index + args.forward_days + 1]:
-            points = fetch_intraday(conn, member["symbol"], bar["date"])
-            intraday_by_date[bar["date"]] = points if points else synthetic_intraday(bar)
+            future_intraday = fetch_intraday(conn, member["symbol"], bar["date"])
+            if not future_intraday:
+                return None
+            intraday_by_date[bar["date"]] = future_intraday
 
     case = {
         "id": f"{member['symbol']}-{phase}-{decision_date}-{candidate.index}",
@@ -354,8 +345,8 @@ def build_case(conn: psycopg.Connection[Any], member: dict[str, Any], daily: lis
         "dataQuality": {
             "daily": "real",
             "indexDaily": "real" if sliced_index_daily else "missing",
-            "stockIntraday": "postgresql" if stock_real else "synthetic",
-            "indexIntraday": "postgresql" if index_real else "synthetic",
+            "stockIntraday": "postgresql" if stock_real else "missing",
+            "indexIntraday": "postgresql" if index_real else "missing",
         },
     }
     return case, stock_real, index_real
@@ -480,7 +471,10 @@ def main() -> None:
 
                 selected = diversify_candidates(scan_candidates(daily, index_daily_by_date, args), args)
                 for candidate in selected:
-                    case, stock_real, index_real = build_case(conn, member, daily, index_daily_by_date, index_daily, candidate, "history", args)
+                    built = build_case(conn, member, daily, index_daily_by_date, index_daily, candidate, "history", args)
+                    if not built:
+                        continue
+                    case, stock_real, index_real = built
                     insert_case(conn, run_id, case, "history", candidate)
                     history_count += 1
                     real_stock_intraday += int(stock_real)
@@ -493,12 +487,14 @@ def main() -> None:
                 current_candidate = classify_context(daily, index_daily_by_date, latest_index, 0) or Candidate(latest_index, 0, ["current"], {})
                 current_candidate = Candidate(latest_index, current_candidate.score, ["current", *current_candidate.tags], {})
                 if not args.current_count or current_count < args.current_count:
-                    case, stock_real, index_real = build_case(conn, member, daily, index_daily_by_date, index_daily, current_candidate, "current", args)
-                    insert_case(conn, run_id, case, "current", current_candidate)
-                    current_count += 1
-                    real_stock_intraday += int(stock_real)
-                    real_index_intraday += int(index_real)
-                    print(f"current {current_count}: {member['symbol']} {member['name']} {case['daily'][case['decisionIndex']]['date']}", flush=True)
+                    built = build_case(conn, member, daily, index_daily_by_date, index_daily, current_candidate, "current", args)
+                    if built:
+                        case, stock_real, index_real = built
+                        insert_case(conn, run_id, case, "current", current_candidate)
+                        current_count += 1
+                        real_stock_intraday += int(stock_real)
+                        real_index_intraday += int(index_real)
+                        print(f"current {current_count}: {member['symbol']} {member['name']} {case['daily'][case['decisionIndex']]['date']}", flush=True)
 
                 if args.max_history_cases and history_count >= args.max_history_cases:
                     break

@@ -45,24 +45,8 @@ function normalizeDataset(dataset: TrainingDataset): TrainingDataset | null {
 }
 
 export async function loadTrainingDataset(): Promise<TrainingDataset | null> {
-  for (const path of ['/api/training-cases', '/data/training-cases.json']) {
-    try {
-      const response = await fetch(path, { cache: 'no-store' });
-      if (!response.ok) continue;
-
-      const dataset = (await response.json()) as TrainingDataset;
-      const normalized = normalizeDataset(dataset);
-      if (normalized) return normalized;
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-export async function loadStaticTrainingDataset(): Promise<TrainingDataset | null> {
   try {
-    const response = await fetch('/data/training-cases.json', { cache: 'no-store' });
+    const response = await fetch('/api/training-cases', { cache: 'no-store' });
     if (!response.ok) return null;
 
     const dataset = (await response.json()) as TrainingDataset;

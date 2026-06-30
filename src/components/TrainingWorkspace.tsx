@@ -11,9 +11,10 @@ import { DecisionChecklist } from './DecisionChecklist';
 import { TrainingPresetDropdown } from './TrainingPanels';
 import { ReviewPanel } from './ReviewPanel';
 
-const POSITION_SIZES: PositionSize[] = [25, 50, 100];
+const POSITION_SIZES: PositionSize[] = [10, 20, 25, 50, 70, 80, 100];
 const TIME_MODES: TimeMode[] = ['open', 'noon', 'close'];
 type MobileChartTab = 'intraday' | 'daily' | 'weekly' | 'monthly' | 'index';
+type PendingTradeAction = 'buy' | 'sell' | null;
 
 const MOBILE_CHART_TABS: Array<{ key: MobileChartTab; label: string }> = [
   { key: 'intraday', label: '分时' },
@@ -40,14 +41,13 @@ function syncMobileActionBarViewport() {
 export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useTradingTrainer> }) {
   const [mobileChartTab, setMobileChartTab] = useState<MobileChartTab>('daily');
   const [actionBarHidden, setActionBarHidden] = useState(false);
+  const [pendingTradeAction, setPendingTradeAction] = useState<PendingTradeAction>(null);
   const {
     scenario,
     showStock,
     setShowStock,
     showDate,
     setShowDate,
-    positionSize,
-    setPositionSize,
     buyReason,
     setBuyReason,
     noBuyReason,
@@ -128,6 +128,10 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
   }, [scenario.base.id, scenario.mode, currentTime, Boolean(review), heldQuantity]);
 
   useEffect(() => {
+    setPendingTradeAction(null);
+  }, [scenario.base.id, currentTime, heldQuantity]);
+
+  useEffect(() => {
     let showTimer: number | undefined;
 
     function scheduleShow(delay = 220) {
@@ -184,7 +188,37 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
 
   function runTimelineAction(action: () => void | Promise<void>) {
     setMobileChartTab('intraday');
+    setPendingTradeAction(null);
     return runMobileAction(action);
+  }
+
+  function selectTradeAction(action: PendingTradeAction) {
+    syncMobileActionBarViewport();
+    setActionBarHidden(false);
+    setPendingTradeAction((current) => (current === action ? null : action));
+  }
+
+  function confirmTrade(size: PositionSize) {
+    if (pendingTradeAction === 'buy') {
+      runMobileAction(() => buy(size));
+    } else if (pendingTradeAction === 'sell') {
+      runMobileAction(() => sell(size));
+    }
+    setPendingTradeAction(null);
+  }
+
+  function renderTradeSizeOptions() {
+    if (!pendingTradeAction) return null;
+    return (
+      <div className="trade-size-options">
+        <span>{pendingTradeAction === 'buy' ? '买入比例' : '卖出比例'}</span>
+        {POSITION_SIZES.map((item) => (
+          <button key={item} onClick={() => confirmTrade(item)} disabled={isBootstrapping || (pendingTradeAction === 'buy' && isBankrupt)}>
+            {item}%
+          </button>
+        ))}
+      </div>
+    );
   }
 
   function renderMobileChart() {
@@ -234,11 +268,17 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
 
   const mobileActionBar = (
     <section className={actionBarHidden ? 'mobile-action-bar hide-while-scroll' : 'mobile-action-bar'}>
-      <button className="buy-btn" onClick={() => runMobileAction(buy)} disabled={isBankrupt || isBootstrapping}>买入</button>
-      <button className={sellButtonClass} onClick={() => runMobileAction(sell)} disabled={isBootstrapping} title={sellLockedByT1 ? '当天买入受 T+1 限制，下一交易日才可卖' : undefined}>卖出</button>
-      <button className="neutral-btn" onClick={() => runTimelineAction(advanceHour)} disabled={scenario.mode === 'close' || isBootstrapping}>下一小时</button>
-      <button className="neutral-btn" onClick={() => runTimelineAction(advanceDay)} disabled={isBootstrapping}>下一日</button>
-      <button className="primary-btn" onClick={() => runMobileAction(() => resetTraining())} disabled={heldQuantity > 0 || isBankrupt || isBootstrapping}>下一题</button>
+      {pendingTradeAction ? (
+        renderTradeSizeOptions()
+      ) : (
+        <>
+          <button className="buy-btn" onClick={() => selectTradeAction('buy')} disabled={isBankrupt || isBootstrapping}>买入</button>
+          <button className={sellButtonClass} onClick={() => selectTradeAction('sell')} disabled={isBootstrapping} title={sellLockedByT1 ? '当天买入受 T+1 限制，下一交易日才可卖' : undefined}>卖出</button>
+          <button className="primary-btn" onClick={() => runMobileAction(() => resetTraining())} disabled={heldQuantity > 0 || isBankrupt || isBootstrapping}>下一题</button>
+          <button className="neutral-btn" onClick={() => runTimelineAction(advanceHour)} disabled={scenario.mode === 'close' || isBootstrapping}>下一小时</button>
+          <button className="neutral-btn" onClick={() => runTimelineAction(advanceDay)} disabled={isBootstrapping}>下一日</button>
+        </>
+      )}
     </section>
   );
 
@@ -347,14 +387,6 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
                 </div>
               </div>
               <div className="control-block trade-control">
-                <label>本次使用比例</label>
-                <div className="segmented">
-                  {POSITION_SIZES.map((item) => (
-                    <button key={item} className={positionSize === item ? 'active' : ''} onClick={() => setPositionSize(item)}>{item}%</button>
-                  ))}
-                </div>
-              </div>
-              <div className="control-block trade-control">
                 <label>计划止损</label>
                 <div className="segmented">
                   {STOP_LOSS_PLANS.map((item) => (
@@ -367,11 +399,12 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
                 <div className="trade-rule">{tradeStateText} · 100股整数手 · 当日买入次日可卖</div>
               </div>
               <div className="decision-actions compact-actions">
-                <button className="buy-btn" onClick={buy} disabled={isBankrupt || isBootstrapping}>模拟买入 {positionSize}%现金</button>
-                <button className={sellButtonClass} onClick={sell} disabled={isBootstrapping} title={sellLockedByT1 ? '当天买入受 T+1 限制，下一交易日才可卖' : undefined}>模拟卖出 {positionSize}%可卖</button>
+                <button className="buy-btn" onClick={() => selectTradeAction('buy')} disabled={isBankrupt || isBootstrapping}>模拟买入</button>
+                <button className={sellButtonClass} onClick={() => selectTradeAction('sell')} disabled={isBootstrapping} title={sellLockedByT1 ? '当天买入受 T+1 限制，下一交易日才可卖' : undefined}>模拟卖出</button>
                 <button className="neutral-btn" onClick={() => runTimelineAction(advanceHour)} disabled={scenario.mode === 'close' || isBootstrapping}>下一小时</button>
                 <button className="neutral-btn" onClick={() => runTimelineAction(advanceDay)} disabled={isBootstrapping}>下一交易日</button>
                 <button className="primary-btn" onClick={() => resetTraining()} disabled={heldQuantity > 0 || isBankrupt || isBootstrapping}>下一题</button>
+                {renderTradeSizeOptions()}
               </div>
               <p className="trade-hint">未买入时点击“下一题”，系统会按你选择的未买入理由记录本题；不会提前显示题目难度或未来标签。</p>
               {sellLockedByT1 && <p className="trade-hint">当前持仓为当天买入，卖出按钮置灰提示；点击后会显示 T+1 限制说明。</p>}
