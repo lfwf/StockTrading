@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { TrainingWorkspace } from './components/TrainingWorkspace';
-import { AccountPage, HomePage, KnowledgePage, MistakeProfilePage, type ProductPage } from './components/ProductPages';
+import { AccountPage, HomePage, KnowledgePage, LandingPage, MistakeProfilePage, type LandingPageKey, type ProductPage } from './components/ProductPages';
 import { useLocalAccount } from './hooks/useLocalAccount';
 import { useTradingTrainer } from './hooks/useTradingTrainer';
 import type { TrainingPhase } from './domain/trainingPhase';
@@ -14,12 +14,41 @@ const NAV_ITEMS: Array<{ key: ProductPage; label: string; phase?: TrainingPhase 
   { key: 'profile', label: '账号' },
 ];
 
-const VALID_PAGES = new Set<ProductPage>(NAV_ITEMS.map((item) => item.key));
+const LANDING_PAGE_KEYS: LandingPageKey[] = ['blind-trading', 'buy-decision-training', 'trading-discipline', 'intraday-trap', 'faq'];
+const ALL_PAGES = new Set<ProductPage>([...NAV_ITEMS.map((item) => item.key), ...LANDING_PAGE_KEYS]);
+const LANDING_PAGES = new Set<ProductPage>(LANDING_PAGE_KEYS);
+
+const PAGE_PATHS: Record<ProductPage, string> = {
+  home: '/',
+  knowledge: '/knowledge',
+  history: '/history',
+  current: '/current',
+  mistakes: '/mistakes',
+  profile: '/profile',
+  'blind-trading': '/blind-trading',
+  'buy-decision-training': '/buy-decision-training',
+  'trading-discipline': '/trading-discipline',
+  'intraday-trap': '/intraday-trap',
+  faq: '/faq',
+};
+
+const PATH_PAGES = Object.entries(PAGE_PATHS).reduce<Record<string, ProductPage>>((acc, [page, path]) => {
+  acc[path] = page as ProductPage;
+  return acc;
+}, {});
+
+function pageFromLocation(): ProductPage | null {
+  if (typeof window === 'undefined') return null;
+  const path = window.location.pathname.replace(/\/$/, '') || '/';
+  return PATH_PAGES[path] ?? null;
+}
 
 function loadLastPage(): ProductPage {
+  const routePage = pageFromLocation();
+  if (routePage) return routePage;
   try {
     const saved = localStorage.getItem('stock-trading-active-page') as ProductPage | null;
-    return saved && VALID_PAGES.has(saved) ? saved : 'home';
+    return saved && ALL_PAGES.has(saved) ? saved : 'home';
   } catch {
     return 'home';
   }
@@ -42,6 +71,15 @@ export default function App() {
       document.body.classList.remove('mobile-menu-open');
     };
   }, [navOpen]);
+
+  useEffect(() => {
+    function handlePopState() {
+      const routePage = pageFromLocation();
+      if (routePage) setActivePage(routePage);
+    }
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -80,6 +118,11 @@ export default function App() {
     if (phase) trainer.switchTrainingPhase(phase);
     setActivePage(page);
     setNavOpen(false);
+
+    if (typeof window !== 'undefined') {
+      const nextPath = PAGE_PATHS[page] ?? '/';
+      if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
+    }
   }
 
   function renderPage() {
@@ -87,6 +130,7 @@ export default function App() {
     if (activePage === 'knowledge') return <KnowledgePage onNavigate={navigate} />;
     if (activePage === 'history' || activePage === 'current') return <TrainingWorkspace trainer={trainer} />;
     if (activePage === 'mistakes') return <MistakeProfilePage trainer={trainer} onNavigate={navigate} />;
+    if (LANDING_PAGES.has(activePage)) return <LandingPage page={activePage as LandingPageKey} onNavigate={navigate} />;
     return <AccountPage account={account} onSignIn={signIn} onSignOut={signOut} trainer={trainer} />;
   }
 
@@ -125,7 +169,7 @@ export default function App() {
       {renderPage()}
 
       <footer className="compliance-footer">
-        本产品仅用于模拟训练、交易行为复盘和投资者教育，不构成任何证券投资建议。所有训练结果不代表未来收益，用户不应据此作出真实交易决策。
+        风险提示：本产品仅用于模拟训练、交易行为复盘和投资者教育，不提供个股推荐、买卖建议或收益承诺。市场有风险，投资需谨慎。
       </footer>
     </div>
   );
