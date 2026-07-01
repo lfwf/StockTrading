@@ -94,8 +94,11 @@ export default function App() {
     <div className="app-shell product-shell">
       <header className="product-topbar">
         <button className="brand-button" onClick={() => navigate('home')}>
-          <span>盲盘训练</span>
-          <b>{activeItem.label}</b>
+          <img src="/logo.svg" alt="" aria-hidden="true" />
+          <span className="brand-copy">
+            <span>盲盘训练</span>
+            <b>{activeItem.label}</b>
+          </span>
         </button>
         <button className="mobile-menu-button" onClick={() => setNavOpen(true)} aria-expanded={navOpen} aria-label="打开菜单">菜单</button>
         <nav className={navOpen ? 'product-nav open' : 'product-nav'}>

@@ -26,6 +26,10 @@
 }
 
 .brand-button {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
   text-align: left;
   padding: 7px 9px;
   background: rgba(88, 166, 255, 0.1);
@@ -33,18 +37,25 @@
   border-radius: 11px;
 }
 
-.brand-button span,
+.brand-button img {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+}
+
+.brand-copy span,
 .brand-button b {
   display: block;
 }
 
-.brand-button span {
+.brand-copy span {
   color: var(--accent);
   font-size: 12px;
 }
 
 .brand-button b {
   margin-top: 3px;
+  color: #d8e3ec;
   font-size: 13px;
 }
 
