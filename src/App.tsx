@@ -32,6 +32,53 @@ const PAGE_PATHS: Record<ProductPage, string> = {
   faq: '/faq',
 };
 
+const PAGE_META: Record<ProductPage, { title: string; description: string }> = {
+  home: {
+    title: 'A股盲盘训练工具｜交易纪律与买点判断模拟训练',
+    description: 'A股盲盘训练工具，用历史盘面和当前盘面模拟买入决策，训练买点判断、分时陷阱识别、仓位止损和交易纪律。',
+  },
+  knowledge: {
+    title: '股票买点判断基础知识｜A股盲盘训练工具',
+    description: '了解日K、周K、月K、分时图、仓位止损和交易心理，开始进行A股盲盘训练。',
+  },
+  history: {
+    title: '历史盲盘训练｜A股买入决策模拟训练',
+    description: '回到历史某个交易时刻，只看当时可见数据，训练模拟买入、放弃或继续观察的判断。',
+  },
+  current: {
+    title: '当前盘面训练｜A股模拟买入练习',
+    description: '使用最新盘面数据进行模拟训练，练习买入判断和交易纪律，不构成投资建议。',
+  },
+  mistakes: {
+    title: '股票交易错题记录｜买入判断复盘工具',
+    description: '查看模拟训练中的高频错误标签、最近错题和交易行为偏差。',
+  },
+  profile: {
+    title: '训练账号与模拟交易记录｜A股盲盘训练工具',
+    description: '查看本机训练账号、模拟交易流水和历史训练记录。',
+  },
+  'blind-trading': {
+    title: '什么是A股盲盘训练？｜交易行为训练方法',
+    description: '盲盘训练通过隐藏未来走势，还原历史交易时刻，帮助训练买点判断和交易纪律。',
+  },
+  'buy-decision-training': {
+    title: '如何训练股票买入决策？｜买点判断训练',
+    description: '把股票买入决策拆成趋势、位置、量能、分时、止损、仓位和买入动机等检查项。',
+  },
+  'trading-discipline': {
+    title: '交易纪律训练｜为什么纪律比预测涨跌更重要',
+    description: '通过模拟训练降低追高、逆势、硬扛和情绪化买入等错误行为。',
+  },
+  'intraday-trap': {
+    title: '分时图冲高回落陷阱｜A股分时训练',
+    description: '识别分时急拉、冲高回落、站不回均价线和尾盘拉升等常见误导。',
+  },
+  faq: {
+    title: 'A股盲盘训练工具常见问题｜是否荐股与使用边界',
+    description: '说明A股盲盘训练工具是否荐股、是否真实交易、适合谁使用以及和回测系统的区别。',
+  },
+};
+
 const PATH_PAGES = Object.entries(PAGE_PATHS).reduce<Record<string, ProductPage>>((acc, [page, path]) => {
   acc[path] = page as ProductPage;
   return acc;
@@ -62,6 +109,12 @@ export default function App() {
   const phaseSwitchTimer = useRef<number | null>(null);
   const restoredPhaseRef = useRef(false);
   const activeItem = NAV_ITEMS.find((item) => item.key === activePage) ?? NAV_ITEMS[0];
+
+  useEffect(() => {
+    const meta = PAGE_META[activePage] ?? PAGE_META.home;
+    document.title = meta.title;
+    document.querySelector('meta[name="description"]')?.setAttribute('content', meta.description);
+  }, [activePage]);
 
   useEffect(() => {
     document.body.classList.toggle('nav-open', navOpen);
