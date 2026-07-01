@@ -16,6 +16,19 @@ const dataDir = join(root, 'data');
 await mkdir(dataDir, { recursive: true });
 await ensureSchema();
 
+const sitemapPaths = ['/', '/blind-trading', '/buy-decision-training', '/trading-discipline', '/intraday-trap', '/faq'];
+
+function serveSitemap(res) {
+  const site = 'https://market.senjer.top';
+  const urls = sitemapPaths
+    .map((path) => `  <url>\n    <loc>${site}${path === '/' ? '/' : path}</loc>\n  </url>`)
+    .join('\n');
+  const body = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
+  res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' });
+  res.end(body);
+  return true;
+}
+
 async function handleApi(req, res, url) {
   for (const handler of [
     handleTrainingCaseRoutes,
@@ -33,6 +46,7 @@ createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
     if (url.pathname.startsWith('/api/')) return await handleApi(req, res, url);
+    if (url.pathname === '/sitemap.xml') return serveSitemap(res);
 
     if (url.pathname.startsWith('/data/')) {
       const relative = normalize(url.pathname.slice(1));
