@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { MarketCursor, PortfolioState, TimeMode } from '../types';
 import type { MistakeItem } from '../domain/learning';
+import type { TrainingPhase } from '../domain/trainingPhase';
 
 export type BackendSummary = {
   trade_count: number;
@@ -12,6 +13,7 @@ export type BackendSummary = {
 
 export function useTrainerPersistence(params: {
   enabled: boolean;
+  phase: TrainingPhase;
   portfolio: PortfolioState;
   currentEquity: number;
   mistakes: MistakeItem[];
@@ -20,12 +22,12 @@ export function useTrainerPersistence(params: {
   mode: TimeMode;
   onBackendSummary: (summary: BackendSummary | null) => void;
 }) {
-  const { enabled, portfolio, currentEquity, mistakes, baseCaseId, cursor, mode, onBackendSummary } = params;
+  const { enabled, phase, portfolio, currentEquity, mistakes, baseCaseId, cursor, mode, onBackendSummary } = params;
 
   useEffect(() => {
     if (!enabled) return;
-    localStorage.setItem('stock-trading-portfolio', JSON.stringify(portfolio));
-    localStorage.setItem('stock-trading-last-equity', String(currentEquity));
+    localStorage.setItem(`stock-trading-portfolio-${phase}`, JSON.stringify(portfolio));
+    localStorage.setItem(`stock-trading-last-equity-${phase}`, String(currentEquity));
     fetch('/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -36,7 +38,7 @@ export function useTrainerPersistence(params: {
         equity: currentEquity,
       }),
     }).catch(() => undefined);
-  }, [enabled, portfolio, currentEquity]);
+  }, [enabled, phase, portfolio, currentEquity]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -53,6 +55,6 @@ export function useTrainerPersistence(params: {
 
   useEffect(() => {
     if (!enabled) return;
-    localStorage.setItem('stock-trading-game', JSON.stringify({ caseId: baseCaseId, cursor, mode }));
-  }, [enabled, baseCaseId, cursor, mode]);
+    localStorage.setItem(`stock-trading-game-${phase}`, JSON.stringify({ caseId: baseCaseId, cursor, mode }));
+  }, [enabled, phase, baseCaseId, cursor, mode]);
 }

@@ -100,9 +100,10 @@ export function sellShares(
   symbol: string,
 ): { portfolio: PortfolioState; trade: SimTrade | null } {
   const sellable = sellableQuantity(portfolio, date);
+  if (sellable < BOARD_LOT) return { portfolio, trade: null };
   const requested = percent === 100
     ? sellable
-    : Math.floor(sellable * percent / 100 / BOARD_LOT) * BOARD_LOT;
+    : Math.max(BOARD_LOT, Math.floor(sellable * percent / 100 / BOARD_LOT) * BOARD_LOT);
   if (requested < BOARD_LOT) return { portfolio, trade: null };
 
   let remaining = requested;

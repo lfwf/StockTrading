@@ -11,6 +11,7 @@ type ProductAction = (page: ProductPage, phase?: TrainingPhase) => void;
 
 export function HomePage({ onNavigate, trainer, account }: { onNavigate: ProductAction; trainer: ReturnType<typeof useTradingTrainer>; account: LocalAccount | null }) {
   const equityReturn = pct(change(trainer.portfolio.initialCash, trainer.currentEquity));
+  const phaseLabel = trainer.trainingPhase === 'current' ? '当前盘面' : '历史盲盘';
 
   return (
     <section className="product-home">
@@ -27,7 +28,7 @@ export function HomePage({ onNavigate, trainer, account }: { onNavigate: Product
 
       <div className="home-stats">
         <StatCard label="当前身份" value={account ? account.name : '游客模式'} desc={account ? '当前记录保存在本机账号下' : '可以先体验，后续再登录保存记录'} />
-        <StatCard label="模拟资产" value={`¥${trainer.currentEquity.toFixed(2)}`} desc={`累计变化 ${equityReturn}`} />
+        <StatCard label={`${phaseLabel}资产`} value={`¥${trainer.currentEquity.toFixed(2)}`} desc={`累计变化 ${equityReturn}`} />
         <StatCard label="错题数量" value={`${trainer.mistakes.length}题`} desc="系统会记录回撤较大或明显错过的样本" />
       </div>
 
@@ -205,7 +206,21 @@ function AccountStat({ label, value, desc, tone }: { label: string; value: strin
 }
 
 function TradingHistoryPanel({ trainer }: { trainer: ReturnType<typeof useTradingTrainer> }) {
-  const trades = trainer.portfolio.trades;
+  const phases: Array<{ key: TrainingPhase; label: string }> = [
+    { key: 'history', label: '历史盲盘' },
+    { key: 'current', label: '当前盘面' },
+  ];
+
+  return (
+    <div className="account-history-grid">
+      {phases.map((phase) => (
+        <TradeHistorySection key={phase.key} label={phase.label} trades={trainer.phasePortfolios[phase.key].trades} />
+      ))}
+    </div>
+  );
+}
+
+function TradeHistorySection({ label, trades }: { label: string; trades: SimTrade[] }) {
   const groups = buildStockTradeGroups(trades);
   const realized = trades.reduce((sum, trade) => sum + (trade.realizedPnl ?? 0), 0);
   const buyCount = trades.filter((trade) => trade.side === 'buy').length;
@@ -214,6 +229,10 @@ function TradingHistoryPanel({ trainer }: { trainer: ReturnType<typeof useTradin
 
   return (
     <div className="account-history-grid account-history-redesign">
+      <div className="account-panel-head phase-history-head">
+        <h2>{label}交易历史</h2>
+        <span>{trades.length} 笔</span>
+      </div>
       <div className="account-stats-row">
         <AccountStat label="总操作" value={`${trades.length}笔`} desc={`买入 ${buyCount} · 卖出 ${sellCount}`} />
         <AccountStat label="已实现盈亏" value={money(realized)} desc="只统计卖出成交后的收益" tone={realized >= 0 ? 'up' : 'down'} />

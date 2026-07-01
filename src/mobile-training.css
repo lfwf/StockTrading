@@ -6,7 +6,7 @@
 .trade-size-options {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: auto repeat(7, minmax(0, 1fr));
+  grid-template-columns: auto repeat(8, minmax(0, 1fr));
   gap: 6px;
   align-items: center;
   padding: 7px;
@@ -30,6 +30,12 @@
   color: #dbeafe;
   font-size: 12px;
   font-weight: 800;
+}
+
+.trade-size-options .cancel-trade-size {
+  background: rgba(148, 163, 184, 0.1);
+  border-color: rgba(148, 163, 184, 0.22);
+  color: #cbd5e1;
 }
 
 .mobile-market-metrics {
@@ -250,7 +256,7 @@
   }
 
   .mobile-action-bar .trade-size-options {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     padding: 6px;
   }
 

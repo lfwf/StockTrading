@@ -4,9 +4,9 @@ import { averageCost, equity, positionQuantity, sellableQuantity } from '../lib/
 import { type MistakeItem, type TrainingPreset } from './learning';
 import { getCasesForPhase, type TrainingPhase } from './trainingPhase';
 
-function getBootstrapEquity(portfolio: PortfolioState): number | null {
+function getBootstrapEquity(portfolio: PortfolioState, trainingPhase: TrainingPhase): number | null {
   try {
-    const saved = Number(localStorage.getItem('stock-trading-last-equity'));
+    const saved = Number(localStorage.getItem(`stock-trading-last-equity-${trainingPhase}`));
     if (Number.isFinite(saved) && saved > 0) return saved;
   } catch {
     // localStorage can be unavailable in non-browser runtimes.
@@ -31,7 +31,7 @@ export function computeTrainerMetrics(params: {
   const heldQuantity = positionQuantity(portfolio);
   const availableQuantity = sellableQuantity(portfolio, currentDate);
   const calculatedEquity = equity(portfolio, scenario.buyPrice);
-  const currentEquity = trainingCases.length === 0 ? getBootstrapEquity(portfolio) ?? calculatedEquity : calculatedEquity;
+  const currentEquity = trainingCases.length === 0 ? getBootstrapEquity(portfolio, trainingPhase) ?? calculatedEquity : calculatedEquity;
   const cost = averageCost(portfolio);
   const isBankrupt = currentEquity <= 0.01;
   const intradayPrices = scenario.visibleIntraday.map((point) => point.price);

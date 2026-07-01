@@ -226,6 +226,7 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
     return (
       <div className="trade-size-options">
         <span>{pendingTradeAction === 'buy' ? '买入比例' : '卖出比例'}</span>
+        <button className="cancel-trade-size" onClick={() => setPendingTradeAction(null)} disabled={isBootstrapping}>取消</button>
         {POSITION_SIZES.map((item) => (
           <button key={item} onClick={() => confirmTrade(item)} disabled={isBootstrapping || (pendingTradeAction === 'buy' && isBankrupt)}>
             {item}%
@@ -288,7 +289,7 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
         <>
           <button className="buy-btn" onClick={() => selectTradeAction('buy')} disabled={isBankrupt || isBootstrapping}>买入</button>
           <button className={sellButtonClass} onClick={() => selectTradeAction('sell')} disabled={isBootstrapping} title={sellLockedByT1 ? '当天买入受 T+1 限制，下一交易日才可卖' : undefined}>卖出</button>
-          <button className="primary-btn next-case-btn" onClick={() => runMobileAction(() => resetTraining())} disabled={heldQuantity > 0 || isBankrupt || isBootstrapping}>下一题</button>
+          <button className="primary-btn next-case-btn" onClick={() => runMobileAction(() => resetTraining())} disabled={heldQuantity > 0 || isBootstrapping}>下一题</button>
           <button className="neutral-btn" onClick={() => runTimelineAction(advanceHour)} disabled={scenario.mode === 'close' || isBootstrapping}>下一小时</button>
           <button className="neutral-btn" onClick={() => runTimelineAction(advanceDay)} disabled={isBootstrapping}>下一日</button>
         </>
@@ -429,7 +430,7 @@ export function TrainingWorkspace({ trainer }: { trainer: ReturnType<typeof useT
                 <button className={sellButtonClass} onClick={() => selectTradeAction('sell')} disabled={isBootstrapping} title={sellLockedByT1 ? '当天买入受 T+1 限制，下一交易日才可卖' : undefined}>模拟卖出</button>
                 <button className="neutral-btn" onClick={() => runTimelineAction(advanceHour)} disabled={scenario.mode === 'close' || isBootstrapping}>下一小时</button>
                 <button className="neutral-btn" onClick={() => runTimelineAction(advanceDay)} disabled={isBootstrapping}>下一交易日</button>
-                <button className="primary-btn next-case-btn" onClick={() => resetTraining()} disabled={heldQuantity > 0 || isBankrupt || isBootstrapping}>下一题</button>
+                <button className="primary-btn next-case-btn" onClick={() => resetTraining()} disabled={heldQuantity > 0 || isBootstrapping}>下一题</button>
                 {renderTradeSizeOptions()}
               </div>
               <p className="trade-hint">未买入时点击“下一题”，系统会按你选择的未买入理由记录本题；不会提前显示题目难度或未来标签。</p>

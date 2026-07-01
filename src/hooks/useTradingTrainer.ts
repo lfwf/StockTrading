@@ -92,6 +92,23 @@ const LOADING_CASE: BaseCase = {
   intradayByDate: { '1970-01-01': [{ time: '09:30', price: 0, avgPrice: 0, volume: 0 }] },
 };
 
+type PhasePortfolios = Record<TrainingPhase, PortfolioState>;
+
+function portfolioStorageKey(phase: TrainingPhase) {
+  return `stock-trading-portfolio-${phase}`;
+}
+
+function loadPortfolioForPhase(phase: TrainingPhase): PortfolioState {
+  try {
+    const saved = localStorage.getItem(portfolioStorageKey(phase))
+      ?? (phase === 'history' ? localStorage.getItem('stock-trading-portfolio') : null);
+    return saved ? normalizePortfolio(JSON.parse(saved)) : createPortfolio();
+  } catch {
+    localStorage.removeItem(portfolioStorageKey(phase));
+    return createPortfolio();
+  }
+}
+
 export function useTradingTrainer() {
   const [trainingCases, setTrainingCases] = useState<BaseCase[]>([]);
   const [currentCases, setCurrentCases] = useState<BaseCase[]>([]);
@@ -117,15 +134,18 @@ export function useTradingTrainer() {
   const [checklist, setChecklist] = useState<DecisionChecklistState>(DEFAULT_CHECKLIST);
   const [mistakes, setMistakes] = useState<MistakeItem[]>(() => loadMistakes());
   const [backendSummary, setBackendSummary] = useState<BackendSummary | null>(null);
-  const [portfolio, setPortfolio] = useState<PortfolioState>(() => {
-    try {
-      const saved = localStorage.getItem('stock-trading-portfolio');
-      return saved ? normalizePortfolio(JSON.parse(saved)) : createPortfolio();
-    } catch {
-      localStorage.removeItem('stock-trading-portfolio');
-      return createPortfolio();
-    }
-  });
+  const [phasePortfolios, setPhasePortfolios] = useState<PhasePortfolios>(() => ({
+    history: loadPortfolioForPhase('history'),
+    current: loadPortfolioForPhase('current'),
+  }));
+  const portfolio = phasePortfolios[trainingPhase];
+
+  function setPortfolio(next: PortfolioState | ((current: PortfolioState) => PortfolioState)) {
+    setPhasePortfolios((current) => ({
+      ...current,
+      [trainingPhase]: typeof next === 'function' ? next(current[trainingPhase]) : next,
+    }));
+  }
 
   const scenario = useMemo(() => buildTradingScenarioView(baseCase, cursor), [baseCase, cursor]);
   const metrics = useMemo(() => computeTrainerMetrics({ scenario, portfolio, trainingCases, trainingPresets, trainingPhase, mistakes }), [scenario, portfolio, trainingCases, trainingPresets, trainingPhase, mistakes]);
@@ -179,6 +199,7 @@ export function useTradingTrainer() {
 
   useTrainerPersistence({
     enabled: !isBootstrapping,
+    phase: trainingPhase,
     portfolio,
     currentEquity,
     mistakes,
@@ -260,10 +281,12 @@ export function useTradingTrainer() {
   }
 
   function switchTrainingPhase(next: TrainingPhase) {
-    if (heldQuantity > 0 || hasCurrentCaseTrades) {
-      setTradeMessage('开始交易后已锁定训练阶段，必须清仓并进入下一题后再切换。');
+    if (next === trainingPhase) return;
+    if (heldQuantity > 0) {
+      setTradeMessage('当前训练还有未卖出持仓，必须先清仓后再切换。');
       return;
     }
+    setBackendSummary(null);
     setTrainingPhase(next);
     void loadAndApplyNextCase(next);
   }
@@ -444,8 +467,8 @@ export function useTradingTrainer() {
         nextPoints = [];
       }
       if (!nextPoints?.length) {
-        setTradeMessage('下一交易日分钟行情暂时无法获取，请先确认 minute_bars 是否已同步。');
-        return;
+        nextPoints = [{ time: '09:30', price: nextBar.open, avgPrice: nextBar.open, volume: 0 }];
+        setTradeMessage('下一交易日分钟行情暂时无法获取，已先按日线开盘价推进到下一交易日。');
       }
       setBaseCase((current) => ({
         ...current,
@@ -494,6 +517,7 @@ export function useTradingTrainer() {
     mistakes,
     setMistakes,
     backendSummary,
+    phasePortfolios,
     portfolio,
     currentTime,
     heldQuantity,
